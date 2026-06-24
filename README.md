@@ -1,4 +1,9 @@
-# Next.js Engine
+# Kastrick - Docs
+This project officially uses Nextjs Engine for all pages By Kate-alt-69, at [here](https://github.com/Kate-alt-69/nextjs-engine)
+
+`Kastrick Platform 2026 All Rights Reserved.`
+
+## Next.js Engine
 
 A schema-driven rendering engine for Next.js. Define pages as TypeScript objects — the engine handles every optimization automatically.
 
@@ -6,7 +11,7 @@ No raw HTML. No raw JSX. Just fast pages.
 
 ---
 
-## Why
+### Why
 
 Raw React and Next.js hand you the tools but apply nothing for you. Every optimization — lazy loading, memoization, responsive layout, image sizing, video buffering — you have to wire up yourself, every single time.
 
@@ -14,7 +19,7 @@ This engine does all of it by default. You write a schema. The engine produces a
 
 ---
 
-## What It Handles Automatically
+### What It Handles Automatically
 
 | Problem | Engine Solution |
 |---------|----------------|
@@ -32,7 +37,7 @@ This engine does all of it by default. You write a schema. The engine produces a
 
 ---
 
-## Quick Start
+### Quick Start
 
 Drop the `src/engine/` folder into any Next.js project, add the path alias, and start defining pages.
 
@@ -101,7 +106,7 @@ That's it. The engine handles the rest.
 
 ---
 
-## Responsive Layout
+### Responsive Layout
 
 Pass a breakpoint map to any spacing, sizing, or layout prop. The engine converts it to CSS custom properties — the browser does the switching, not JavaScript.
 
@@ -117,7 +122,7 @@ No resize listeners. No hydration mismatches. No layout shifts.
 
 ---
 
-## Theme
+### Theme
 
 Set CSS custom properties once, used everywhere:
 
@@ -143,7 +148,7 @@ defineSchema({
 
 ---
 
-## Custom Components
+### Custom Components
 
 Register any React component under a custom node type:
 
@@ -166,7 +171,7 @@ registerComponent(
 
 ---
 
-## Lazy Loading Rules
+### Lazy Loading Rules
 
 The engine decides laziness automatically based on element type and position in the tree. Override with `props.priority = true` (always eager) or `props.lazy = true/false`.
 
@@ -183,7 +188,7 @@ The engine decides laziness automatically based on element type and position in 
 
 ---
 
-## Node Types
+### Node Types
 
 `box` `stack` `grid` `text` `heading` `image` `video` `section` `hero` `card` `button` `spacer` `divider` `slot`
 
@@ -191,7 +196,7 @@ Full prop reference for each type is in `DOCUMENT.md`.
 
 ---
 
-## Event Handlers
+### Event Handlers
 
 Named handlers are provided at the `createPage` level and referenced by name in the schema:
 
@@ -209,7 +214,7 @@ export default createPage({
 
 ---
 
-## Slots
+### Slots
 
 Inject React components into specific points in the schema tree:
 
@@ -225,7 +230,7 @@ createPage({
 
 ---
 
-## File Structure
+### File Structure
 
 ```
 src/engine/
@@ -252,7 +257,7 @@ src/engine/
 
 ---
 
-## Docs
+### Docs
 
 Full technical documentation including all prop tables, the CSS resolver internals, lazy detection rules, and integration guides is in `DOCUMENT.md`.
 
