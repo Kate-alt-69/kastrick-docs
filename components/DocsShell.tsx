@@ -14,7 +14,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { DocPageMeta, DocTrack, DocsManifest, ProjectRecord } from "@/lib/content";
-import { decodeShareCode, encodeShareCode } from "@/lib/shareCode";
+import { decodeShareCode, encodeShareCode, SHARE_HEADING_ANCHOR_BASE } from "@/lib/shareCode";
 
 interface DocsShellProps {
 	manifest: DocsManifest;
@@ -329,7 +329,13 @@ export default function DocsShell({
 			trackPages.findIndex((p) => p.slug === page?.slug),
 		);
 		const lineMatch = lastAnchor.match(/^L(\d+)$/);
-		const lineIdx = lineMatch ? Number(lineMatch[1]) : 0;
+		const headingIdx = page?.toc.findIndex((item) => item.id === lastAnchor) ?? -1;
+		const parsedLine = lineMatch ? Number(lineMatch[1]) : 0;
+		const lineIdx = parsedLine > 0
+			? Math.min(parsedLine, SHARE_HEADING_ANCHOR_BASE - 1)
+			: headingIdx >= 0
+				? SHARE_HEADING_ANCHOR_BASE + headingIdx
+				: 0;
 		const code = encodeShareCode({
 			projectIdx,
 			trackIdx: track === "guides" ? 1 : 0,
