@@ -70,7 +70,7 @@ function resolveRequestPath(requestUrl) {
 
 	// Static export emits the resolver as /share.html or /share/index.html.
 	// Keep the browser URL intact so ShareResolver can read the 8-char path token.
-	const isShareCodePath = /^\\/share\\/[A-Za-z0-9]{8}\\/?$/.test(pathname);
+	const isShareCodePath = /^\/share\/[A-Za-z0-9]{8}\/?$/.test(pathname);
 	const relativePath = isShareCodePath ? "share" : segments.join(path.sep);
 	const basePath = path.resolve(staticRoot, relativePath);
 	const rootPrefix = staticRoot.endsWith(path.sep) ? staticRoot : staticRoot + path.sep;
