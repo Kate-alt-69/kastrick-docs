@@ -119,6 +119,7 @@ export default function DocsShell({
 	const [query, setQuery] = useState("");
 	const [toast, setToast] = useState<string | null>(null);
 	const [scrollPct, setScrollPct] = useState(0);
+	const [showBattery, setShowBattery] = useState(false);
 	const [lastAnchor, setLastAnchor] = useState("top");
 	const [shortShareUrl, setShortShareUrl] = useState("");
 	const [shortCodeInput, setShortCodeInput] = useState("");
@@ -179,12 +180,16 @@ export default function DocsShell({
 		return () => document.removeEventListener("mousedown", onOutside);
 	}, []);
 
-	// Track scroll percentage for the vertical right-side Battery bar.
+	// Keep the share battery only on pages with enough scroll depth to make it useful.
 	useEffect(() => {
 		const onScroll = () => {
 			const doc = document.documentElement;
-			const maxScroll = Math.max(1, doc.scrollHeight - window.innerHeight);
-			setScrollPct(Math.max(0, Math.min(100, Math.round((window.scrollY / maxScroll) * 100))));
+			const maxScroll = Math.max(0, doc.scrollHeight - window.innerHeight);
+			const usefulScrollDepth = Math.max(220, Math.round(window.innerHeight * 0.32));
+			setShowBattery(maxScroll > usefulScrollDepth);
+			setScrollPct(maxScroll > 0
+				? Math.max(0, Math.min(100, Math.round((window.scrollY / maxScroll) * 100)))
+				: 0);
 			const headings = articleRef.current?.querySelectorAll("h2[id], h3[id], p[id], li[id]");
 			if (headings) {
 				for (const el of Array.from(headings)) {
@@ -198,7 +203,16 @@ export default function DocsShell({
 		};
 		onScroll();
 		window.addEventListener("scroll", onScroll, { passive: true });
-		return () => window.removeEventListener("scroll", onScroll);
+		window.addEventListener("resize", onScroll);
+		const observer = typeof ResizeObserver !== "undefined"
+			? new ResizeObserver(onScroll)
+			: null;
+		if (observer) observer.observe(document.documentElement);
+		return () => {
+			window.removeEventListener("scroll", onScroll);
+			window.removeEventListener("resize", onScroll);
+			observer?.disconnect();
+		};
 	}, [page?.slug]);
 
 	// Listen for Ctrl/Cmd+K, Escape, and EngineScroll #-es hash navigation.
@@ -404,10 +418,14 @@ export default function DocsShell({
 
 	return (
 		<div className="kd-root">
-			<header className="kd-topbar">
+			<header className="kd-topbar kd-doc-header">
 				<div className="kd-topbar-left" ref={dropdownRef}>
-					<Link href="/" className="kd-brand" title="Kastrick Docs">
-						K8D
+					<Link href="/" className="kd-brand kd-doc-brand" title="Kastrick Documentation">
+						<span className="kd-doc-brand-full">
+							<span className="kd-doc-brand-name">Kastrick</span>
+							<span className="kd-doc-brand-subtitle">(Docs)</span>
+						</span>
+						<span className="kd-doc-brand-compact" aria-hidden="true">K8D</span>
 					</Link>
 
 					{/* Interactive Path Hierarchy: / <project> / <slug> */}
@@ -590,25 +608,7 @@ export default function DocsShell({
 						/>
 					)}
 
-					<footer className="kd-doc-footer">
-						<div className="kd-footer-actions">
-							{project.established && (
-								<button type="button" className="kd-btn-secondary" onClick={handleDownloadMarkdown}>
-									Download Page (.md)
-								</button>
-							)}
-							<a href={issueUrl} target="_blank" rel="noopener noreferrer" className="kd-btn-secondary">
-								Suggest an edit (Open Issue)
-							</a>
-						</div>
-						<p className="kd-license-line">
-							Licensed under{" "}
-							<a href={manifest.license.url} target="_blank" rel="noopener noreferrer">
-								{manifest.license.name}
-							</a>{" "}
-							— Verbatim download &amp; sharing allowed; edits via GitHub Issues.
-						</p>
-					</footer>
+
 				</main>
 
 				<aside className="kd-toc" aria-label="On this page">
@@ -627,6 +627,7 @@ export default function DocsShell({
 						</div>
 
 						{/* Right-side vertical scroll-progress Battery ("Click to Share") */}
+						{showBattery && (
 						<div className="kd-battery-wrap">
 							<span className="kd-battery-tooltip">Click to Share</span>
 							<button
@@ -645,9 +646,36 @@ export default function DocsShell({
 								<span className="kd-battery-pct">{scrollPct}%</span>
 							</button>
 						</div>
+						)}
 					</div>
 				</aside>
 			</div>
+
+			<footer className="kd-doc-site-footer">
+				<div className="kd-doc-footer-inner">
+					<div className="kd-doc-footer-brand">
+						<Link href="/" className="kd-doc-footer-wordmark">
+							<span>Kastrick</span>
+							<small>(Docs)</small>
+						</Link>
+						<p>Project documentation, references, and practical guides.</p>
+					</div>
+					<div className="kd-doc-footer-links">
+						{project.established && (
+							<button type="button" className="kd-btn-secondary" onClick={handleDownloadMarkdown}>
+								Download page (.md)
+							</button>
+						)}
+						<a href={issueUrl} target="_blank" rel="noopener noreferrer">Suggest an edit ↗</a>
+						<a href={project.repoUrl} target="_blank" rel="noopener noreferrer">Source repository ↗</a>
+						<a href={manifest.license.url} target="_blank" rel="noopener noreferrer">{manifest.license.name}</a>
+					</div>
+					<div className="kd-doc-footer-meta">
+						<span>/{project.id}/{page?.slug ?? "overview"}</span>
+						<span>© {new Date().getFullYear()} Kastrick Platform</span>
+					</div>
+				</div>
+			</footer>
 
 			{/* Android-style floating text selection action pill */}
 			{selectionBar.visible && (
