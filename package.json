@@ -1,15 +1,19 @@
 {
-	"name": "nextjs-engine",
-	"version": "1.1.0",
+	"name": "kastrick-docs",
+	"version": "2.1.0",
 	"private": false,
+	"license": "CC-BY-ND-4.0",
 	"scripts": {
-		"build": "npm run type-check && npm install && next build",
+		"sync:engine": "python3 scripts/sync_engine.py",
+		"sync:docs": "python3 scripts/sync_docs.py",
+		"build": "python3 scripts/build.py",
+		"build:offline": "python3 scripts/build.py --offline",
 		"dev": "next dev",
 		"start": "next start",
-		"type-check": "tsc --noEmit",
-		"clear": "pwsh -Command \"clear; Remove-Item ./.next, ./dist, -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item package-lock.json -Force -ErrorAction SilentlyContinue; Remove-Item tsconfig.tsbuildinfo -Force -ErrorAction SilentlyContinue\""
+		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@vercel/analytics": "^1.5.0",
 		"next": "^16.2.9",
 		"next-view-transitions": "^0.3.5",
 		"react": "^19.0.0",

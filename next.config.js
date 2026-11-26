@@ -1,4 +1,4 @@
-const fs   = require("fs");
+const fs = require("fs");
 const path = require("path");
 
 // ── Engine 404 fallback guard ─────────────────────────────────────────────────
@@ -26,11 +26,13 @@ if (!fs.existsSync(turbopackStub)) {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
 	reactStrictMode: true,
+	output: "export",
 	distDir: "dist",
+	images: {
+		unoptimized: true,
+	},
 
 	// ── Turbopack Compiler Configuration (Next.js 16 Stable) ──────────────────
-	// Instructs the underlying Rust bundler to map server modules specifically 
-	// for client/browser target environments to our clean, empty file stub.
 	turbopack: {
 		resolveAlias: {
 			fs: { browser: "./app/__turbopack_stub__.ts" },
@@ -42,16 +44,15 @@ const nextConfig = {
 	},
 
 	// ── Webpack Legacy Compiler Hook ──────────────────────────────────────────
-	// Kept for seamless alignment when running legacy production hooks or checks.
 	webpack(config, { isServer }) {
 		if (!isServer) {
 			config.resolve.fallback = {
 				...(config.resolve.fallback ?? {}),
-				fs:            false,
+				fs: false,
 				"fs/promises": false,
-				path:          false,
-				os:            false,
-				crypto:        false,
+				path: false,
+				os: false,
+				crypto: false,
 			};
 		}
 		return config;
