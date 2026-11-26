@@ -3,7 +3,7 @@
 import { track } from "@vercel/analytics";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
-import { decodeShareCode } from "@/lib/shareCode";
+import { decodeShareCode, SHARE_HEADING_ANCHOR_BASE } from "@/lib/shareCode";
 
 interface ShareTargetPage {
 	slug: string;
@@ -20,7 +20,6 @@ interface ShareResolverProps {
 	projects: ShareTargetProject[];
 }
 
-const HEADING_ANCHOR_BASE = 2048;
 
 export default function ShareResolver({ projects }: ShareResolverProps) {
 	const router = useRouter();
@@ -58,8 +57,8 @@ export default function ShareResolver({ projects }: ShareResolverProps) {
 		}
 
 		let targetAnchor = "top";
-		if (decoded.lineIdx >= HEADING_ANCHOR_BASE) {
-			const heading = targetPage.toc[decoded.lineIdx - HEADING_ANCHOR_BASE];
+		if (decoded.lineIdx >= SHARE_HEADING_ANCHOR_BASE) {
+			const heading = targetPage.toc[decoded.lineIdx - SHARE_HEADING_ANCHOR_BASE];
 			if (!heading) {
 				setStatus("invalid");
 				setMessage("The heading referenced by this share link could not be found.");
