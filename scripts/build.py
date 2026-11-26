@@ -90,7 +90,7 @@ def main() -> int:
 		if not run_step("Next.js Static Export Build", [npm_cmd, "exec", "next", "build"]):
 			return 1
 
-	print("\n[build] Static documentation build completed cleanly in ./dist.")
+	print("\n[build] Static documentation build completed cleanly in ./out.")
 	return 0
 
 
