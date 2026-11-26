@@ -6,6 +6,7 @@ import React from "react";
 import { createComponent, createEngineComponentRegistry } from "@/engine";
 import DocsShell from "@/components/DocsShell";
 import LandingHero from "@/components/LandingHero";
+import ProjectLanding from "@/components/ProjectLanding";
 import type { DocPageMeta, DocTrack, DocsManifest, ProjectRecord } from "@/lib/content";
 
 interface DocShellNodeProps {
@@ -19,6 +20,10 @@ interface DocShellNodeProps {
 
 interface LandingNodeProps {
 	manifestJson: string;
+}
+
+interface ProjectLandingNodeProps {
+	projectJson: string;
 }
 
 /** Adapter bridging serializable NES schema props into DocsShell. */
@@ -52,6 +57,12 @@ function KastrickLandingAdapter({ manifestJson }: LandingNodeProps) {
 	return <LandingHero manifest={manifest} />;
 }
 
+/** Adapter for each source-driven project index page. */
+function KastrickProjectLandingAdapter({ projectJson }: ProjectLandingNodeProps) {
+	const project = JSON.parse(projectJson) as ProjectRecord;
+	return <ProjectLanding project={project} />;
+}
+
 /** Official Next.js Engine Gen 3 custom component for static repository docs. */
 export const KastrickDocShellComponent = createComponent({
 	mode: "custom",
@@ -79,10 +90,22 @@ export const KastrickLandingComponent = createComponent({
 	strictProps: false,
 });
 
+/** Shared NES component used by every /<project> landing page. */
+export const KastrickProjectLandingComponent = createComponent({
+	mode: "custom",
+	id: "kastrick-project-landing",
+	component: KastrickProjectLandingAdapter as unknown as React.ComponentType<Record<string, unknown>>,
+	props: {
+		projectJson: { type: "string", required: true },
+	},
+	strictProps: false,
+});
+
 /** Build a scoped EngineComponentRegistry containing Kastrick Docs custom nodes. */
 export function getDocsRegistry() {
 	const registry = createEngineComponentRegistry();
 	registry.registerComponent("kastrick-doc-shell", KastrickDocShellComponent);
 	registry.registerComponent("kastrick-landing", KastrickLandingComponent);
+	registry.registerComponent("kastrick-project-landing", KastrickProjectLandingComponent);
 	return registry;
 }
