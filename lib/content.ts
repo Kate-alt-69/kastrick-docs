@@ -111,41 +111,77 @@ function renderInline(text: string): string {
 }
 
 /**
- * Dependency-free static Markdown-to-HTML renderer for build-time pages.
- * Assigns deterministic L# and heading IDs so EngineScroll #-es links resolve cleanly.
+ * Build-time Markdown renderer with deterministic IDs for EngineScroll links.
+ * Supports GFM-style tables, ordered lists, and horizontal rules.
  */
+function splitTableRow(row: string): string[] {
+	let value = row.trim();
+	if (value.startsWith("|")) value = value.slice(1);
+	if (value.endsWith("|")) value = value.slice(0, -1);
+	return value.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
+
+function isTableRow(line: string): boolean {
+	return line.includes("|") && splitTableRow(line).length > 1;
+}
+
+function isTableSeparator(line: string): boolean {
+	const cells = splitTableRow(line);
+	return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function nextNonEmptyLine(lines: string[], start: number): number {
+	for (let index = start; index < lines.length; index += 1) {
+		if (lines[index].trim() !== "") return index;
+	}
+	return -1;
+}
+
+function renderTableAlignment(separator: string): string[] {
+	return splitTableRow(separator).map((cell) => {
+		if (cell.startsWith(":") && cell.endsWith(":")) return "center";
+		if (cell.endsWith(":")) return "right";
+		return "left";
+	});
+}
+
 export function renderMarkdown(markdown: string): string {
-	const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+	const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
 	const html: string[] = [];
 	let inCode = false;
-	let codeLang = "";
+	let codeLang = "text";
 	let codeLines: string[] = [];
-	let inList = false;
+	let activeList: "ul" | "ol" | null = null;
 	let lineNum = 0;
 
 	const flushList = () => {
-		if (inList) {
-			html.push("</ul>");
-			inList = false;
+		if (activeList) {
+			html.push("</" + activeList + ">");
+			activeList = null;
 		}
 	};
 
-	for (const line of lines) {
-		if (line.startsWith("```")) {
+	const renderCodeBlock = () => {
+		lineNum += 1;
+		html.push(
+			'<div id="L' + lineNum + '" class="kd-code-wrap" data-lang="' + escapeHtml(codeLang) + '">' +
+				'<div class="kd-code-head"><span>' + escapeHtml(codeLang) + '</span>' +
+				'<button type="button" class="kd-copy-btn" data-copy="true">Copy</button></div>' +
+				"<pre><code>" + escapeHtml(codeLines.join("\n")) + "</code></pre></div>",
+		);
+	};
+
+	for (let index = 0; index < lines.length; index += 1) {
+		const line = lines[index];
+
+		if (/^\s*\x60\x60\x60/.test(line)) {
 			flushList();
 			if (!inCode) {
 				inCode = true;
-				codeLang = line.slice(3).trim() || "text";
+				codeLang = line.replace(/^\s*\x60\x60\x60/, "").trim() || "text";
 				codeLines = [];
 			} else {
-				lineNum += 1;
-				const codeText = escapeHtml(codeLines.join("\n"));
-				html.push(
-					`<div id="L${lineNum}" class="kd-code-wrap" data-lang="${escapeHtml(codeLang)}">` +
-						`<div class="kd-code-head"><span>${escapeHtml(codeLang)}</span>` +
-						`<button type="button" class="kd-copy-btn" data-copy="true">Copy</button></div>` +
-						`<pre><code>${codeText}</code></pre></div>`,
-				);
+				renderCodeBlock();
 				inCode = false;
 			}
 			continue;
@@ -156,33 +192,78 @@ export function renderMarkdown(markdown: string): string {
 			continue;
 		}
 
-		const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
+		const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
 		if (headingMatch) {
 			flushList();
 			const level = headingMatch[1].length;
 			const rawHeading = headingMatch[2].trim();
-			const id = slugify(rawHeading.replace(/`([^`]+)`/g, "$1"));
-			html.push(`<h${level} id="${id}">${renderInline(rawHeading)}</h${level}>`);
+			const id = slugify(rawHeading);
+			html.push("<h" + level + ' id="' + id + '">' + renderInline(rawHeading) + "</h" + level + ">");
 			continue;
 		}
 
-		if (line.startsWith("> ")) {
+		const separatorIndex = nextNonEmptyLine(lines, index + 1);
+		if (isTableRow(line) && separatorIndex >= 0 && isTableSeparator(lines[separatorIndex])) {
+			flushList();
+			const headers = splitTableRow(line);
+			const alignments = renderTableAlignment(lines[separatorIndex]);
+			const columnCount = Math.max(headers.length, alignments.length);
+			html.push('<div class="kd-table-wrap"><table class="kd-markdown-table"><thead><tr id="L' + (++lineNum) + '">');
+			for (let column = 0; column < columnCount; column += 1) {
+				const align = alignments[column] || "left";
+				html.push('<th scope="col" style="text-align:' + align + '">' + renderInline(headers[column] || "") + "</th>");
+			}
+			html.push("</tr></thead><tbody>");
+
+			let cursor = separatorIndex + 1;
+			while (cursor < lines.length) {
+				if (lines[cursor].trim() === "") {
+					const nextRow = nextNonEmptyLine(lines, cursor + 1);
+					if (nextRow >= 0 && isTableRow(lines[nextRow])) cursor = nextRow;
+					else {
+						cursor += 1;
+						break;
+					}
+				}
+				if (cursor >= lines.length || !isTableRow(lines[cursor]) || isTableSeparator(lines[cursor])) break;
+				const cells = splitTableRow(lines[cursor]);
+				html.push('<tr id="L' + (++lineNum) + '">');
+				for (let column = 0; column < columnCount; column += 1) {
+					const align = alignments[column] || "left";
+					html.push('<td style="text-align:' + align + '">' + renderInline(cells[column] || "") + "</td>");
+				}
+				html.push("</tr>");
+				cursor += 1;
+			}
+			html.push("</tbody></table></div>");
+			index = cursor - 1;
+			continue;
+		}
+
+		if (/^\s*(?:---+|\*\*\*|___)\s*$/.test(line)) {
+			flushList();
+			html.push('<hr class="kd-markdown-rule">');
+			continue;
+		}
+
+		const quoteMatch = line.match(/^\s*>\s?(.*)$/);
+		if (quoteMatch) {
 			flushList();
 			lineNum += 1;
-			html.push(
-				`<blockquote id="L${lineNum}" class="kd-callout">${renderInline(line.slice(2))}</blockquote>`,
-			);
+			html.push('<blockquote id="L' + lineNum + '" class="kd-callout">' + renderInline(quoteMatch[1]) + "</blockquote>");
 			continue;
 		}
 
-		const listMatch = line.match(/^[-*]\s+(.+)$/);
+		const listMatch = line.match(/^\s*(?:([-*+])|(\d+)[.)])\s+(.+)$/);
 		if (listMatch) {
-			if (!inList) {
-				html.push("<ul>");
-				inList = true;
+			const nextListType = listMatch[2] ? "ol" : "ul";
+			if (activeList !== nextListType) {
+				flushList();
+				activeList = nextListType;
+				html.push("<" + activeList + ">");
 			}
 			lineNum += 1;
-			html.push(`<li id="L${lineNum}">${renderInline(listMatch[1])}</li>`);
+			html.push('<li id="L' + lineNum + '">' + renderInline(listMatch[3]) + "</li>");
 			continue;
 		}
 
@@ -193,9 +274,10 @@ export function renderMarkdown(markdown: string): string {
 
 		flushList();
 		lineNum += 1;
-		html.push(`<p id="L${lineNum}">${renderInline(line)}</p>`);
+		html.push('<p id="L' + lineNum + '">' + renderInline(line.trim()) + "</p>");
 	}
 
+	if (inCode) renderCodeBlock();
 	flushList();
 	return html.join("\n");
 }
