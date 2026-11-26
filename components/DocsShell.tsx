@@ -515,9 +515,14 @@ export default function DocsShell({
 		notify(`Downloaded ${filename}`);
 	};
 
-	const issueUrl =
-		`${project.repoUrl}/issues/new?title=` +
-		encodeURIComponent(`[Docs] ${project.name} (${track}): ${page?.title ?? "General"}`);
+	const issueTitle = project.issueTemplate
+		? `[DSE] ${project.name}: ${page?.title ?? "Documentation"}`
+		: `[Docs] ${project.name} (${track}): ${page?.title ?? "General"}`;
+	const issueParams = new URLSearchParams({ title: issueTitle });
+	if (project.issueTemplate) {
+		issueParams.set("template", project.issueTemplate);
+	}
+	const issueUrl = `${project.repoUrl}/issues/new?${issueParams.toString()}`;
 
 	return (
 		<div className="kd-root">
@@ -769,7 +774,7 @@ export default function DocsShell({
 								Download page (.md)
 							</button>
 						)}
-						<a href={issueUrl} target="_blank" rel="noopener noreferrer">Suggest an edit ↗</a>
+						<a href={issueUrl} target="_blank" rel="noopener noreferrer">{project.issueTemplate ? "Suggest a documentation edit ↗" : "Suggest an edit ↗"}</a>
 						<a href={project.repoUrl} target="_blank" rel="noopener noreferrer">Source repository ↗</a>
 						<a href={manifest.license.url} target="_blank" rel="noopener noreferrer">{manifest.license.name}</a>
 					</div>
