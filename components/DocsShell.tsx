@@ -45,6 +45,33 @@ interface NotebookItem {
 	slug: string;
 	pageTitle: string;
 	anchor: string;
+	createdAt?: number;
+}
+
+function isNotebookItem(value: unknown): value is NotebookItem {
+	if (!value || typeof value !== "object") return false;
+	const item = value as Partial<NotebookItem>;
+	return typeof item.id === "string" &&
+		typeof item.quote === "string" &&
+		typeof item.note === "string" &&
+		typeof item.projectId === "string" &&
+		typeof item.projectName === "string" &&
+		(item.track === "docs" || item.track === "guides") &&
+		typeof item.slug === "string" &&
+		typeof item.pageTitle === "string" &&
+		typeof item.anchor === "string";
+}
+
+function notebookSourceHref(item: NotebookItem): string {
+	const anchor = item.anchor
+		? "#-es?move=" + encodeURIComponent(item.anchor) + "&offset=-84&duration=550"
+		: "";
+	return "/" + item.projectId + "/" + item.slug + anchor;
+}
+
+function formatNotebookDate(timestamp?: number): string {
+	if (!timestamp || !Number.isFinite(timestamp)) return "Saved previously";
+	return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(timestamp));
 }
 
 const ES_PROTOCOL = "#-es?";
@@ -125,6 +152,8 @@ export default function DocsShell({
 	const [shortCodeInput, setShortCodeInput] = useState("");
 	const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
 	const [notebook, setNotebook] = useState<NotebookItem[]>([]);
+	const [notebookQuery, setNotebookQuery] = useState("");
+	const [notebookScope, setNotebookScope] = useState<"all" | "project">("all");
 	const [selectionBar, setSelectionBar] = useState<{
 		visible: boolean;
 		left: number;
@@ -147,7 +176,10 @@ export default function DocsShell({
 			const rawPins = localStorage.getItem("kastrick-docs-pins");
 			if (rawPins) setBookmarks(JSON.parse(rawPins));
 			const rawNotes = localStorage.getItem("kastrick-docs-notebook");
-			if (rawNotes) setNotebook(JSON.parse(rawNotes));
+			if (rawNotes) {
+				const parsed: unknown = JSON.parse(rawNotes);
+				if (Array.isArray(parsed)) setNotebook(parsed.filter(isNotebookItem));
+			}
 		} catch {
 			// Ignore storage failures in restricted contexts.
 		}
@@ -302,6 +334,21 @@ export default function DocsShell({
 		[project.pages, track],
 	);
 
+	const filteredNotebook = useMemo(() => {
+		const search = notebookQuery.trim().toLowerCase();
+		return notebook.filter((item) => {
+			if (notebookScope === "project" && item.projectId !== project.id) return false;
+			if (!search) return true;
+			return [
+				item.quote,
+				item.note,
+				item.projectName,
+				item.pageTitle,
+				item.slug,
+			].some((value) => value.toLowerCase().includes(search));
+		});
+	}, [notebook, notebookQuery, notebookScope, project.id]);
+
 	const searchResults = useMemo(() => {
 		const q = query.trim().toLowerCase();
 		if (!q) {
@@ -400,12 +447,59 @@ export default function DocsShell({
 				slug: page?.slug ?? "overview",
 				pageTitle: page?.title ?? project.name,
 				anchor: selectionBar.anchor,
+				createdAt: Date.now(),
 			},
 			...notebook,
 		];
 		persistNotebook(next);
 		setSelectionBar((prev) => ({ ...prev, visible: false }));
 		notify("Saved highlight to Notebook");
+	};
+
+	const updateNotebookNote = (id: string, note: string) => {
+		persistNotebook(notebook.map((item) => item.id === id ? { ...item, note } : item));
+	};
+
+	const removeNotebookItem = (id: string) => {
+		persistNotebook(notebook.filter((item) => item.id !== id));
+		notify("Removed from Notebook");
+	};
+
+	const copyNotebookQuote = (quote: string) => {
+		if (!navigator.clipboard) {
+			notify("Clipboard access is unavailable");
+			return;
+		}
+		void navigator.clipboard.writeText(quote)
+			.then(() => notify("Quote copied"))
+			.catch(() => notify("Could not access the clipboard"));
+	};
+
+	const handleExportNotebook = () => {
+		const markdown = [
+			"# Kastrick Docs Notebook",
+			"\nExported " + new Date().toLocaleString(),
+			...notebook.map((item) => {
+				const source = window.location.origin + notebookSourceHref(item);
+				const quote = item.quote.split("\n").map((line) => "> " + line).join("\n");
+				return [
+					"## " + item.pageTitle,
+					"**" + item.projectName + "** · " + item.track.toUpperCase(),
+					quote,
+					item.note ? "**My note**\n\n" + item.note : "",
+					"[Open source](" + source + ")",
+					formatNotebookDate(item.createdAt),
+				].filter(Boolean).join("\n\n");
+			}),
+		].join("\n\n---\n\n");
+		const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement("a");
+		link.href = url;
+		link.download = "kastrick-docs-notebook.md";
+		link.click();
+		window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+		notify("Exported " + notebook.length + " Notebook entries");
 	};
 
 	const handleDownloadMarkdown = () => {
@@ -763,29 +857,110 @@ export default function DocsShell({
 			)}
 
 			{notebookOpen && (
-				<div className="kd-modal-backdrop" onClick={() => setNotebookOpen(false)}>
-					<div className="kd-modal" onClick={(e) => e.stopPropagation()}>
-						<h3>Notebook Markings</h3>
-						<ul className="kd-search-results">
-							{notebook.map((n) => (
-								<li key={n.id}>
-									<blockquote>&ldquo;{n.quote}&rdquo;</blockquote>
-									<input
-										type="text"
-										value={n.note}
-										placeholder="Add note..."
-										onChange={(e) => {
-											persistNotebook(
-												notebook.map((item) =>
-													item.id === n.id ? { ...item, note: e.target.value } : item,
-												),
-											);
-										}}
-									/>
-								</li>
-							))}
-						</ul>
-					</div>
+				<div className="kd-modal-backdrop kd-notebook-backdrop" onClick={() => setNotebookOpen(false)}>
+					<section
+						className="kd-modal kd-notebook-modal"
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="kd-notebook-title"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<header className="kd-notebook-header">
+							<div>
+								<div className="kd-notebook-eyebrow">PERSONAL RESEARCH</div>
+								<h3 id="kd-notebook-title">Notebook <span>{notebook.length} saved</span></h3>
+							</div>
+							<button type="button" className="kd-notebook-close" onClick={() => setNotebookOpen(false)}>
+								Close <span aria-hidden="true">×</span>
+							</button>
+						</header>
+
+						<div className="kd-notebook-toolbar">
+							<input
+								type="search"
+								value={notebookQuery}
+								onChange={(e) => setNotebookQuery(e.target.value)}
+								placeholder="Search quotes, notes, projects..."
+								className="kd-search-input"
+								aria-label="Search Notebook"
+							/>
+							<div className="kd-notebook-filters" aria-label="Filter Notebook entries">
+								<button
+									type="button"
+									className={notebookScope === "all" ? "active" : ""}
+									aria-pressed={notebookScope === "all"}
+									onClick={() => setNotebookScope("all")}
+								>
+									All projects
+								</button>
+								<button
+									type="button"
+									className={notebookScope === "project" ? "active" : ""}
+									aria-pressed={notebookScope === "project"}
+									onClick={() => setNotebookScope("project")}
+								>
+									This project
+								</button>
+							</div>
+							<button
+								type="button"
+								className="kd-btn-secondary kd-notebook-export"
+								onClick={handleExportNotebook}
+								disabled={notebook.length === 0}
+							>
+								Export .md
+							</button>
+						</div>
+
+						<div className="kd-notebook-list">
+							{filteredNotebook.length === 0 ? (
+								<div className="kd-notebook-empty">
+									<strong>{notebook.length === 0 ? "Nothing saved yet" : "No matching highlights"}</strong>
+									<p>
+										{notebook.length === 0
+											? "Select a passage in any documentation page and choose Notebook to keep it here."
+											: "Try a different search or switch the project filter."}
+									</p>
+								</div>
+							) : (
+								filteredNotebook.map((item) => (
+									<article key={item.id} className="kd-notebook-entry">
+										<div className="kd-notebook-entry-top">
+											<span>{item.projectName} <i>·</i> {item.track.toUpperCase()}</span>
+											<button
+												type="button"
+												className="kd-notebook-remove"
+												onClick={() => removeNotebookItem(item.id)}
+												aria-label={"Remove highlight from " + item.pageTitle}
+											>
+												Remove
+											</button>
+										</div>
+										<blockquote className="kd-notebook-quote">{item.quote}</blockquote>
+										<div className="kd-notebook-source">
+											<Link href={notebookSourceHref(item)} onClick={() => setNotebookOpen(false)}>
+												{item.pageTitle} <span aria-hidden="true">↗</span>
+											</Link>
+											<time>{formatNotebookDate(item.createdAt)}</time>
+										</div>
+										<textarea
+											value={item.note}
+											onChange={(e) => updateNotebookNote(item.id, e.target.value)}
+											placeholder="Add your note or context..."
+											rows={2}
+											aria-label={"Note for " + item.pageTitle}
+										/>
+										<div className="kd-notebook-entry-actions">
+											<button type="button" onClick={() => copyNotebookQuote(item.quote)}>Copy quote</button>
+											<Link href={notebookSourceHref(item)} onClick={() => setNotebookOpen(false)}>
+												Open source
+											</Link>
+										</div>
+									</article>
+								))
+							)}
+						</div>
+					</section>
 				</div>
 			)}
 
