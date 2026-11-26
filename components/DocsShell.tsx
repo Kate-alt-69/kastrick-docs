@@ -185,8 +185,11 @@ export default function DocsShell({
 		const onScroll = () => {
 			const doc = document.documentElement;
 			const maxScroll = Math.max(0, doc.scrollHeight - window.innerHeight);
+			const readingContentBottom = articleRef.current
+				? articleRef.current.getBoundingClientRect().bottom + window.scrollY
+				: 0;
 			const usefulScrollDepth = Math.max(220, Math.round(window.innerHeight * 0.32));
-			setShowBattery(maxScroll > usefulScrollDepth);
+			setShowBattery(readingContentBottom - window.innerHeight > usefulScrollDepth);
 			setScrollPct(maxScroll > 0
 				? Math.max(0, Math.min(100, Math.round((window.scrollY / maxScroll) * 100)))
 				: 0);
