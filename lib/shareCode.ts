@@ -6,11 +6,14 @@
 const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const BASE = BigInt(ALPHABET.length);
 
+/** Values at or above this number represent page.toc heading indexes; lower values are L# anchors. */
+export const SHARE_HEADING_ANCHOR_BASE = 2048;
+
 export interface SharePayload {
 	projectIdx: number; // 0..15  (4 bits)
 	trackIdx: number;   // 0..1   (1 bit: 0 = docs, 1 = guides)
 	pageIdx: number;    // 0..127 (7 bits)
-	lineIdx: number;    // 0..4095 (12 bits)
+	lineIdx: number;    // 0 = top, 1..2047 = L# line, 2048..4095 = TOC heading index
 	levelPct: number;   // 0..100 (7 bits)
 }
 
