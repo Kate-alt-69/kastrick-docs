@@ -36,6 +36,7 @@ export interface ProjectRecord {
 	version: string;
 	badge: string;
 	accentColor?: string;
+	issueTemplate?: string;
 	rebaseNotice: string | null;
 	description: string;
 	tracks: DocTrack[];
