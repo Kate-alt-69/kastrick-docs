@@ -27,7 +27,7 @@ function PageRow({
 	index: number;
 }) {
 	return (
-		<Link className="kd-project-page-row" href={\`/\${projectId}/\${page.slug}\`}>
+		<Link className="kd-project-page-row" href={`/${projectId}/${page.slug}`}>
 			<span className="kd-project-page-index">{String(index + 1).padStart(2, "0")}</span>
 			<span className="kd-project-page-copy">
 				<strong>{page.title}</strong>
@@ -86,7 +86,7 @@ export default function ProjectLanding({ project }: ProjectLandingProps) {
 							{project.badge && project.badge !== "NOT_EST" && (
 								<span className="kd-project-tag">{project.badge}</span>
 							)}
-							<span className={\`kd-project-state kd-project-state-\${state}\`}>{stateLabel}</span>
+							<span className={`kd-project-state kd-project-state-${state}`}>{stateLabel}</span>
 							{versionLabel !== "Not set" && <span className="kd-project-version">{versionLabel}</span>}
 						</div>
 
@@ -95,11 +95,11 @@ export default function ProjectLanding({ project }: ProjectLandingProps) {
 
 						<div className="kd-project-actions">
 							{firstDoc ? (
-								<Link className="kd-project-button kd-project-button-primary" href={\`/\${project.id}/\${firstDoc.slug}\`}>
+								<Link className="kd-project-button kd-project-button-primary" href={`/${project.id}/${firstDoc.slug}`}>
 									Read documentation <span aria-hidden="true">→</span>
 								</Link>
 							) : firstGuide ? (
-								<Link className="kd-project-button kd-project-button-primary" href={\`/\${project.id}/\${firstGuide.slug}\`}>
+								<Link className="kd-project-button kd-project-button-primary" href={`/${project.id}/${firstGuide.slug}`}>
 									Read guides <span aria-hidden="true">→</span>
 								</Link>
 							) : (
@@ -108,7 +108,7 @@ export default function ProjectLanding({ project }: ProjectLandingProps) {
 								</a>
 							)}
 							{firstDoc && firstGuide && (
-								<Link className="kd-project-button kd-project-button-secondary" href={\`/\${project.id}/\${firstGuide.slug}\`}>
+								<Link className="kd-project-button kd-project-button-secondary" href={`/${project.id}/${firstGuide.slug}`}>
 									Browse guides
 								</Link>
 							)}
