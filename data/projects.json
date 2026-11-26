@@ -59,7 +59,8 @@
 				"vault": "Security & Vault",
 				"engine": "Core Architecture"
 			},
-			"accentColor": "#f07842"
+			"accentColor": "#f07842",
+			"issueTemplate": "document-suggested-edit.md"
 		},
 		{
 			"id": "nextjs-engine",
