@@ -11,7 +11,7 @@
 		"build": "node scripts/run_py.js scripts/build.py",
 		"build:offline": "node scripts/run_py.js scripts/build.py --offline",
 		"dev": "next dev",
-		"start": "next start",
+		"start": "node scripts/serve-static.js",
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
