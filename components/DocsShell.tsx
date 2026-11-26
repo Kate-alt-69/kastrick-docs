@@ -516,7 +516,7 @@ export default function DocsShell({
 	};
 
 	const issueTitle = project.issueTemplate
-		? `[DSE] ${project.name}: ${page?.title ?? "Documentation"}`
+		? `[DSE] ${project.name} /${page?.slug ?? "overview"}: ${page?.title ?? "Documentation"}`
 		: `[Docs] ${project.name} (${track}): ${page?.title ?? "General"}`;
 	const issueParams = new URLSearchParams({ title: issueTitle });
 	if (project.issueTemplate) {
@@ -774,7 +774,14 @@ export default function DocsShell({
 								Download page (.md)
 							</button>
 						)}
-						<a href={issueUrl} target="_blank" rel="noopener noreferrer">{project.issueTemplate ? "Suggest a documentation edit ↗" : "Suggest an edit ↗"}</a>
+						<a
+							href={issueUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							title={project.issueTemplate ? "Open the Document Suggested Edit form for this page" : "Suggest an edit in the source repository"}
+						>
+							{project.issueTemplate ? "Suggest a documentation edit ↗" : "Suggest an edit ↗"}
+						</a>
 						<a href={project.repoUrl} target="_blank" rel="noopener noreferrer">Source repository ↗</a>
 						<a href={manifest.license.url} target="_blank" rel="noopener noreferrer">{manifest.license.name}</a>
 					</div>
