@@ -18,7 +18,7 @@ Official static documentation and guides hub for the **Kastrick** ecosystem, pow
 - **Static Per-Build Sync (`scripts/sync_docs.py`):** Downloads live Markdown documentation from established repositories at build time (zero runtime network calls), rewrites relative links to `/<project>/<slug>` and `EngineScroll` `#-es` anchors, and emits static HTML via `output: "export"`.
 - **Automatic GREEN-CI Engine Sync (`scripts/sync_engine.py`):** Tracks the latest passing CI commit on `Kastrick8/nextjs-engine` and updates `src/engine/` atomically.
 - **EngineScroll Share URLs & `/share/<8char>`:** Click the vertical scroll-progress battery on the right rail to generate a deterministic 8-character Base62 share link encoding project, track, page, line, and scroll level (with Vercel Analytics tracking).
-- **Pinning & Notebook Markings:** Pin docs/guides or highlight any text inside a page to copy, pin, or save annotated quotes to your local Notebook.
+- **Pinning & Notebook:** Save highlighted passages locally, search and filter notes across projects, jump back to their source location, copy quotes, edit annotations, and export the Notebook as Markdown.
 
 ## Local Development
 
