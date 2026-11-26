@@ -22,16 +22,26 @@ Official static documentation and guides hub for the **Kastrick** ecosystem, pow
 
 ## Local Development
 
+Install dependencies and run the live Next.js development server:
+
 ```bash
 npm install
 npm run dev
 ```
 
-To run the full static build pipeline (engine sync → static docs sync → TypeScript check → `next build`):
+To generate the production static export (engine sync → docs sync → type-check → Next.js export):
 
 ```bash
 npm run build
 ```
+
+Preview that generated static site locally:
+
+```bash
+npm run start
+```
+
+The preview server serves the exported HTML from `out/` (or `dist/` when that folder contains an `index.html`). It resolves extensionless routes such as `/rbe/vault` to their exported HTML files. Set `KASTRICK_DOCS_STATIC_DIR` to serve an export from a different directory, or `PORT` to change the default port `3000`.
 
 For offline builds using local snapshots:
 
