@@ -23,7 +23,7 @@ export default async function ProjectLandingPage({
 
 	const schema = defineSchema({
 		meta: {
-			title: \`\${project.name} — Kastrick Docs\`,
+			title: `${project.name} — Kastrick Docs`,
 			description: project.description,
 		},
 		root: {
