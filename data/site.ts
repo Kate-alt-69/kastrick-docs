@@ -1,87 +1,34 @@
-// data/site.ts
+// data/site.ts — Core metadata and branding for Kastrick Documentation.
 
 export const siteMetadata = {
-	/* ---------------------------------------------------------------------- */
-	/* Core                                                                   */
-	/* ---------------------------------------------------------------------- */
-
 	title: "Kastrick Documentation",
-
 	description:
-		"Official documentation for the Kastrick ecosystem, Nextjs Engine, Backend, APIs and developer resources.",
-
-	applicationName: "Kastrick",
-
+		"Official static documentation and guides for RBE, Next.js Engine, PackageX, PackX, PackageX SDKs, and Kastrick's Utility.",
+	applicationName: "Kastrick Docs",
 	url: "https://kastrick.dev",
-
-	/* ---------------------------------------------------------------------- */
-	/* SEO                                                                    */
-	/* ---------------------------------------------------------------------- */
-
 	keywords: [
 		"Kastrick",
 		"Kastrick Docs",
-		"Nextjs Engine",
-		"Next.js",
-		"Documentation",
-		"Backend",
-		"Frontend",
-		"API",
-		"Engine",
-		"Framework",
-		"React",
-		"TypeScript",
-		"Developer",
-		"Industrial",
-		"Infrastructure",
+		"RBE",
+		"Next.js Engine",
+		"PackageX",
+		"PackX",
+		"Kastrick's Utility",
 	],
-
-	/* ---------------------------------------------------------------------- */
-	/* Author                                                                 */
-	/* ---------------------------------------------------------------------- */
-
 	authors: [
 		{
 			name: "Kate",
 			url: "https://github.com/Kate-alt-69",
 		},
 	],
-
 	creator: "Kate",
-
 	publisher: "Kastrick",
-
-	/* ---------------------------------------------------------------------- */
-	/* Social                                                                 */
-	/* ---------------------------------------------------------------------- */
-
-	github: "https://github.com/Kate-alt-69/kastrick",
-
-	repository: "Kate-alt-69/kastrick",
-
-	/* ---------------------------------------------------------------------- */
-	/* Images                                                                 */
-	/* ---------------------------------------------------------------------- */
-
-	images: {
-		og: "/og.png",
-		logo: "/logo.svg",
-		favicon: "/favicon.ico",
-	},
-
-	/* ---------------------------------------------------------------------- */
-	/* Branding                                                               */
-	/* ---------------------------------------------------------------------- */
-
+	github: "https://github.com/Kate-alt-69/kastrick-docs",
+	repository: "Kate-alt-69/kastrick-docs",
 	brand: {
-		primary: "#60A5FA",
-		background: "#070B12",
-		foreground: "#FFFFFF",
+		primary: "#38BDF8",
+		background: "#09090B",
+		foreground: "#FAFAFA",
 	},
-
-	/* ---------------------------------------------------------------------- */
-	/* Footer                                                                 */
-	/* ---------------------------------------------------------------------- */
-
 	copyright: `© ${new Date().getFullYear()} Kastrick`,
 };

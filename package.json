@@ -1,29 +1,35 @@
 {
 	"name": "kastrick-docs",
-	"version": "2.1.0",
+	"version": "2.2.0",
 	"private": false,
 	"license": "CC-BY-ND-4.0",
 	"scripts": {
-		"sync:engine": "python3 scripts/sync_engine.py",
-		"sync:docs": "python3 scripts/sync_docs.py",
-		"build": "python3 scripts/build.py",
-		"build:offline": "python3 scripts/build.py --offline",
+		"sync:engine": "node scripts/run_py.js scripts/sync_engine.py",
+		"sync:docs": "node scripts/run_py.js scripts/sync_docs.py",
+		"prepare:production": "node scripts/gen3-prepare-production.js",
+		"ne": "node ./bin/ne.js",
+		"build": "node scripts/run_py.js scripts/build.py",
+		"build:offline": "node scripts/run_py.js scripts/build.py --offline",
 		"dev": "next dev",
 		"start": "next start",
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
 		"@vercel/analytics": "^1.5.0",
-		"next": "^16.2.9",
+		"next": "^16.3.3",
 		"next-view-transitions": "^0.3.5",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
-		"three": "^0.184.0"
+		"react-markdown": "^10.1.0",
+		"remark-gfm": "^4.0.1",
+		"three": "^0.184.0",
+		"two.js": "^0.8.23"
 	},
 	"devDependencies": {
 		"@types/node": "^20.10.0",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
+		"@types/three": "^0.185.0",
 		"typescript": "^5.3.0"
 	}
 }

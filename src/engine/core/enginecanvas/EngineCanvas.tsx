@@ -1,595 +1,573 @@
 "use client";
+
 // ─────────────────────────────────────────────────────────────────────────────
-//  Engine — EngineCanvas
+// EngineCanvas — shared canvas runtime
 //
-//  A canvas component that actually uses the GPU and doesn't lag.
-//
-//  What it does vs a plain <canvas>:
-//
-//    · Picks the right context automatically:
-//        mode "2d"     → CanvasRenderingContext2D  with desynchronized:true
-//                         (lets the browser present the canvas without waiting
-//                          for the main-thread compositor — biggest 2D win)
-//        mode "webgl2" → WebGL2RenderingContext    with powerPreference:"high-performance"
-//        mode "webgl"  → WebGLRenderingContext     same
-//        mode "auto"   → tries webgl2 → webgl → 2d
-//
-//    · Promotes the canvas to its own GPU compositor layer via CSS:
-//        transform: translateZ(0) + will-change: transform
-//        contain: strict  ← prevents layout/style recalcs from neighbours
-//
-//    · Adaptive DPR scaling — starts at window.devicePixelRatio (capped at
-//      maxDpr, default 2). If the rolling-average FPS drops below 30, DPR
-//      is reduced 10% per frame until FPS recovers. It ramps back up when
-//      the GPU has headroom again.
-//
-//    · Pauses the animation loop via the Page Visibility API when the tab
-//      is hidden, and via IntersectionObserver when the canvas is scrolled
-//      off-screen. Resets the delta-time clock on resume so the first frame
-//      after a pause doesn't have a massive dt.
-//
-//    · Responsive via ResizeObserver — canvas pixel dimensions stay in sync
-//      with its CSS layout size at all times.
-//
-//    · Clean teardown — cancels RAF, disconnects observers, calls onDestroy.
-//
-//  Usage (2D):
-//
-//    <EngineCanvas
-//      mode="2d"
-//      responsive
-//      onSetup={(ctx) => {
-//        ctx.fillStyle = "red";
-//        return () => { /* optional cleanup */ };
-//      }}
-//      onDraw={(ctx, canvas, delta) => {
-//        ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
-//        // draw here — canvas coordinates are in CSS pixels (DPR handled)
-//      }}
-//    />
-//
-//  Usage (WebGL 3D):
-//
-//    <EngineCanvas
-//      mode="webgl2"
-//      powerPreference="high-performance"
-//      antialias
-//      onSetup={(gl) => {
-//        // compile shaders, create buffers, etc.
-//        return () => { gl.getExtension("WEBGL_lose_context")?.loseContext(); };
-//      }}
-//      onDraw={(gl, canvas, delta, frame) => {
-//        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-//        // draw here
-//      }}
-//    />
+// Keeps expensive work out of the hot frame path:
+// · built-in graphics engines are dynamically imported only when selected
+// · refresh-aware timing adapts behavior without reducing visual resolution
+// · responsive CSS sizing is never replaced with fixed inline pixel sizing
+// · offscreen + hidden pause reasons cannot accidentally resume each other
+// · callback/scene refs stay current without tearing down the canvas runtime
+// · callback mode owns RAF only while onDraw has useful work to do
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, {
-	useRef,
-	useEffect,
-	useCallback,
 	memo,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
 	type CSSProperties,
 } from "react";
-
-import { createRenderingEngine } from "../enginecanvas";
-import type { RenderingEngine, ECRenderContext, ECScene } from "../enginecanvas";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import type { ECScene } from "./ECTypes";
+import type { ECRenderContext, RenderingEngine } from "./RenderingEngine";
+import {
+	ECFrameClock,
+	type ECFrameTiming,
+} from "./ECFrameClock";
+import { useHandler } from "../../providers/EngineProvider";
+import { EngineScheduler } from "../enginescheduler/EngineScheduler";
 
 type Mode = "2d" | "webgl" | "webgl2" | "auto";
-
-type Ctx2D  = CanvasRenderingContext2D;
-type CtxGL  = WebGLRenderingContext;
+type Ctx2D = CanvasRenderingContext2D;
+type CtxGL = WebGLRenderingContext;
 type CtxGL2 = WebGL2RenderingContext;
 type AnyCtx = Ctx2D | CtxGL | CtxGL2;
 
+/** Return false from an onDraw callback when it has no more frames to produce. */
+export type EngineCanvasDrawResult = void | false;
+export type EngineCanvasFrameInfo = ECFrameTiming;
+
 export interface EngineCanvasProps {
-	/**
-	 * Rendering context to use.
-	 * "auto" tries webgl2 → webgl → 2d and picks the best available.
-	 * Default: "auto"
-	 */
 	mode?: Mode;
-
-	// ── Canvas dimensions ──────────────────────────────────────────────────
-	/** Fixed pixel width — omit for responsive mode */
 	width?: number;
-	/** Fixed pixel height — omit for responsive mode */
 	height?: number;
-	/**
-	 * When true, the canvas fills its CSS container and ResizeObserver keeps
-	 * pixel dimensions in sync. Default: true when width/height are omitted.
-	 */
 	responsive?: boolean;
-
-	// ── Performance ───────────────────────────────────────────────────────
-	/**
-	 * Device pixel ratio. "auto" = window.devicePixelRatio (capped at maxDpr).
-	 * Default: "auto"
-	 */
 	dpr?: number | "auto";
-	/** Cap on the device pixel ratio. Default: 2 */
 	maxDpr?: number;
-	/**
-	 * Adaptive DPR — automatically reduce pixel density if FPS drops below
-	 * 30 fps and restore it when performance recovers. Default: true
-	 */
+	/** Compatibility switch retained for scheduling integrations. Visual resolution is never reduced. */
 	adaptive?: boolean;
-	/**
-	 * Pause the animation loop when the canvas is not in the viewport.
-	 * Default: true
-	 */
+	/** Compatibility target hint; retained without using it to lower quality. */
+	adaptiveTargetFps?: number | "display";
 	pauseWhenOffscreen?: boolean;
-	/**
-	 * Pause the animation loop when the browser tab is hidden (Page Visibility).
-	 * Default: true
-	 */
 	pauseWhenHidden?: boolean;
-
-	// ── Context options ────────────────────────────────────────────────────
-	/**
-	 * Transparent canvas background. Setting to false (default) allows
-	 * the browser to skip alpha compositing — a small but free GPU win.
-	 * Default: false
-	 */
 	alpha?: boolean;
-	/**
-	 * WebGL multi-sample anti-aliasing.
-	 * Expensive on mobile — disable for particle systems / volumetrics.
-	 * Default: true for webgl/webgl2, ignored for 2d.
-	 */
 	antialias?: boolean;
-	/**
-	 * WebGL power preference hint sent to the OS GPU scheduler.
-	 * "high-performance" — request the discrete GPU on dual-GPU systems.
-	 * Default: "high-performance"
-	 */
+	/** Opt into the low-latency 2D context hint. Disabled by default to avoid presentation tearing. */
+	desynchronized?: boolean;
 	powerPreference?: "default" | "high-performance" | "low-power";
-
-	// ── Callbacks ─────────────────────────────────────────────────────────
-	/**
-	 * Called once after the canvas and context are created.
-	 * Use for shader compilation, buffer setup, loading assets, etc.
-	 * Return a cleanup function that will be called on unmount.
-	 */
-	onSetup?: (ctx: AnyCtx, canvas: HTMLCanvasElement) => (() => void) | void;
-	/**
-	 * Called every animation frame.
-	 * @param ctx    Rendering context
-	 * @param canvas The canvas element
-	 * @param delta  Milliseconds since the last frame (frame-rate independent)
-	 * @param frame  Cumulative frame counter (starts at 0)
-	 */
-	onDraw?: (ctx: AnyCtx, canvas: HTMLCanvasElement, delta: number, frame: number) => void;
-	/**
-	 * Called when the canvas resizes (only fires in responsive mode).
-	 * @param ctx    Rendering context
-	 * @param canvas The canvas element
-	 * @param w      New CSS width in pixels
-	 * @param h      New CSS height in pixels
-	 */
-	onResize?: (ctx: AnyCtx, canvas: HTMLCanvasElement, w: number, h: number) => void;
-
-	// ── EngineCanvas V2 — graphics runtime (opt-in, additive) ──────────────
-	/**
-	 * Opt-in pluggable rendering engine. When set, EC creates the named
-	 * rendering engine ("2d" | "3d" | "svg" | "skia" | custom), calls its
-	 * init/render/resize/dispose lifecycle for you, and reuses the SAME
-	 * RAF loop, adaptive DPR, pause-when-offscreen, and SSR handling that
-	 * onDraw/onSetup get. `onDraw` is ignored while `graphics` is set —
-	 * they are mutually exclusive draw paths on the same canvas.
-	 *
-	 * This does NOT make EngineCanvas the engine's universal renderer —
-	 * it is purely opt-in per <canvas> instance. DOM components (button,
-	 * box, etc.) are never routed through this.
-	 */
+	onSetup?: string | ((ctx: AnyCtx, canvas: HTMLCanvasElement) => (() => void) | void);
+	onDraw?: string | ((
+		ctx: AnyCtx,
+		canvas: HTMLCanvasElement,
+		delta: number,
+		frame: number,
+		timing: EngineCanvasFrameInfo,
+	) => EngineCanvasDrawResult);
+	onResize?: string | ((ctx: AnyCtx, canvas: HTMLCanvasElement, width: number, height: number) => void);
 	graphics?: {
 		engine: string;
-		scene:  ECScene;
+		scene: ECScene;
 	};
-
-	// ── Layout ────────────────────────────────────────────────────────────
-	style?:     CSSProperties;
+	style?: CSSProperties;
 	className?: string;
 }
-
-// ── FPS tracker ───────────────────────────────────────────────────────────────
-
-class FPSTracker {
-	private _window: number[];
-	private _idx = 0;
-	constructor(private size = 30) {
-		this._window = Array(size).fill(60);
-	}
-	push(fps: number): void {
-		this._window[this._idx++ % this.size] = fps;
-	}
-	avg(): number {
-		return this._window.reduce((a, b) => a + b, 0) / this.size;
-	}
-}
-
-// ── Context factory ───────────────────────────────────────────────────────────
 
 function getContext(
 	canvas: HTMLCanvasElement,
 	mode: Mode,
-	opts: { alpha: boolean; antialias: boolean; powerPreference: string },
+	options: {
+		alpha: boolean;
+		antialias: boolean;
+		desynchronized: boolean;
+		powerPreference: string;
+	},
 ): { ctx: AnyCtx; resolvedMode: "2d" | "webgl" | "webgl2" } | null {
-
-	const gl2Opts = {
-		alpha:          opts.alpha,
-		antialias:      opts.antialias,
-		powerPreference: opts.powerPreference,
+	const webglOptions = {
+		alpha: options.alpha,
+		antialias: options.antialias,
+		powerPreference: options.powerPreference,
 		preserveDrawingBuffer: false,
 		failIfMajorPerformanceCaveat: false,
 	};
+	const canvas2dOptions: CanvasRenderingContext2DSettings = {
+		alpha: options.alpha,
+		desynchronized: options.desynchronized,
+	};
 
 	if (mode === "2d") {
-		const ctx = canvas.getContext("2d", {
-			alpha:          opts.alpha,
-			// desynchronized: true → browser can present without waiting for the
-			// main-thread compositor. Biggest perf win for 2D canvas.
-			desynchronized: true,
-		}) as Ctx2D | null;
-		if (!ctx) return null;
-		return { ctx, resolvedMode: "2d" };
+		const context = canvas.getContext("2d", canvas2dOptions) as Ctx2D | null;
+		return context ? { ctx: context, resolvedMode: "2d" } : null;
 	}
 
 	if (mode === "webgl2" || mode === "auto") {
-		const ctx = canvas.getContext("webgl2", gl2Opts) as CtxGL2 | null;
-		if (ctx) return { ctx, resolvedMode: "webgl2" };
-		if (mode === "webgl2") return null; // explicit request, don't fall back
+		const context = canvas.getContext("webgl2", webglOptions) as CtxGL2 | null;
+		if (context) return { ctx: context, resolvedMode: "webgl2" };
+		if (mode === "webgl2") return null;
 	}
 
 	if (mode === "webgl" || mode === "auto") {
-		const ctx = canvas.getContext("webgl", gl2Opts) as CtxGL | null;
-		if (ctx) return { ctx, resolvedMode: "webgl" };
+		const context = canvas.getContext("webgl", webglOptions) as CtxGL | null;
+		if (context) return { ctx: context, resolvedMode: "webgl" };
 		if (mode === "webgl") return null;
 	}
 
-	// Final fallback for "auto"
-	const ctx = canvas.getContext("2d", { alpha: opts.alpha, desynchronized: true }) as Ctx2D | null;
-	if (!ctx) return null;
-	return { ctx, resolvedMode: "2d" };
+	const context = canvas.getContext("2d", canvas2dOptions) as Ctx2D | null;
+	return context ? { ctx: context, resolvedMode: "2d" } : null;
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+async function loadRenderingEngine(name: string): Promise<RenderingEngine> {
+	switch (name) {
+		case "2d": {
+			const { Engine2D } = await import("./Engine2D");
+			return new Engine2D();
+		}
+		case "3d": {
+			const { Engine3D } = await import("./Engine3D");
+			return new Engine3D();
+		}
+		case "svg": {
+			const { EngineSVGEngine } = await import("./EngineSVG");
+			return new EngineSVGEngine();
+		}
+		case "skia": {
+			const { EngineSkiaEngine } = await import("./EngineSkia");
+			return new EngineSkiaEngine();
+		}
+		default: {
+			const { createRenderingEngine } = await import("./ECEngineRegistry");
+			return createRenderingEngine(name);
+		}
+	}
+}
+
+function resolveGraphicsMode(mode: Mode, graphicsEngine?: string): Mode {
+	if (graphicsEngine === "2d" || graphicsEngine === "svg") return "2d";
+	if (graphicsEngine === "3d" && mode === "2d") return "webgl2";
+	return mode;
+}
+
+function getTargetDpr(dpr: number | "auto", maxDpr: number): number {
+	const deviceDpr = window.devicePixelRatio;
+	const fallbackDpr = Number.isFinite(deviceDpr) && deviceDpr > 0 ? deviceDpr : 1;
+	const requestedDpr = dpr === "auto"
+		? fallbackDpr
+		: Number.isFinite(dpr) ? dpr : fallbackDpr;
+	const requestedMaxDpr = Number.isFinite(maxDpr) ? maxDpr : 2;
+	return Math.max(0.5, Math.min(requestedDpr, Math.max(0.5, requestedMaxDpr)));
+}
+
+function getCanvasCssSize(
+	canvas: HTMLCanvasElement,
+	width: number | undefined,
+	height: number | undefined,
+): { width: number; height: number } {
+	return {
+		width: (width ?? canvas.clientWidth) || 300,
+		height: (height ?? canvas.clientHeight) || 150,
+	};
+}
 
 export const EngineCanvas = memo(function EngineCanvas({
-	mode             = "auto",
+	mode = "auto",
 	width,
 	height,
 	responsive,
-	dpr:             dprProp   = "auto",
-	maxDpr           = 2,
-	adaptive         = true,
+	dpr: dprProp = "auto",
+	maxDpr = 2,
+	adaptive = true,
+	adaptiveTargetFps = "display",
 	pauseWhenOffscreen = true,
-	pauseWhenHidden  = true,
-	alpha            = false,
-	antialias        = true,
-	powerPreference  = "high-performance",
-	onSetup,
-	onDraw,
-	onResize,
+	pauseWhenHidden = true,
+	alpha = false,
+	antialias = true,
+	desynchronized = false,
+	powerPreference = "high-performance",
+	onSetup: onSetupRaw,
+	onDraw: onDrawRaw,
+	onResize: onResizeRaw,
 	graphics,
 	style,
 	className,
 }: EngineCanvasProps) {
-	const canvasRef   = useRef<HTMLCanvasElement>(null);
-	const ctxRef      = useRef<AnyCtx | null>(null);
-	const rafRef      = useRef<number>(0);
-	const frameRef    = useRef(0);
-	const lastTimeRef = useRef(0);
-	const dprRef      = useRef(1);
-	const pausedRef   = useRef(false);
-	const fpsTracker  = useRef(new FPSTracker(30));
-	const graphicsEngineRef = useRef<RenderingEngine | null>(null);
+	const onSetupFromContext = useHandler(typeof onSetupRaw === "string" ? onSetupRaw : "");
+	const onDrawFromContext = useHandler(typeof onDrawRaw === "string" ? onDrawRaw : "");
+	const onResizeFromContext = useHandler(typeof onResizeRaw === "string" ? onResizeRaw : "");
 
-	// Whether to use responsive layout
+	const resolvedOnSetup = (typeof onSetupRaw === "function" ? onSetupRaw : onSetupFromContext) as
+		| ((ctx: AnyCtx, canvas: HTMLCanvasElement) => (() => void) | void)
+		| undefined;
+	const resolvedOnDraw = (typeof onDrawRaw === "function" ? onDrawRaw : onDrawFromContext) as
+		| ((ctx: AnyCtx, canvas: HTMLCanvasElement, delta: number, frame: number, timing: EngineCanvasFrameInfo) => EngineCanvasDrawResult)
+		| undefined;
+	const resolvedOnResize = (typeof onResizeRaw === "function" ? onResizeRaw : onResizeFromContext) as
+		| ((ctx: AnyCtx, canvas: HTMLCanvasElement, width: number, height: number) => void)
+		| undefined;
+
+	const canvasRef = useRef<HTMLCanvasElement>(null);
+	const onSetupRef = useRef(resolvedOnSetup);
+	const onDrawRef = useRef(resolvedOnDraw);
+	const onResizeRef = useRef(resolvedOnResize);
+	const graphicsRef = useRef(graphics);
+	const requestLoopRef = useRef<() => void>(() => {});
+	const [contextVersion, setContextVersion] = useState(0);
+	onSetupRef.current = resolvedOnSetup;
+	onDrawRef.current = resolvedOnDraw;
+	onResizeRef.current = resolvedOnResize;
+	graphicsRef.current = graphics;
+
 	const isResponsive = responsive ?? (width === undefined && height === undefined);
+	const resolvedMode = resolveGraphicsMode(mode, graphics?.engine);
 
-	// ── Scale canvas to DPR ───────────────────────────────────────────────────
-	const applyDPR = useCallback((canvas: HTMLCanvasElement, cssW: number, cssH: number) => {
-		const rawDpr  = dprProp === "auto" ? (window.devicePixelRatio || 1) : dprProp;
-		const capped  = Math.min(rawDpr, maxDpr);
-		dprRef.current = capped;
-
-		canvas.width  = Math.round(cssW * capped);
-		canvas.height = Math.round(cssH * capped);
-		canvas.style.width  = `${cssW}px`;
-		canvas.style.height = `${cssH}px`;
-
-		// Scale 2D context so coordinates stay in CSS pixel space
-		if (ctxRef.current instanceof CanvasRenderingContext2D) {
-			ctxRef.current.scale(capped, capped);
-		}
-	}, [dprProp, maxDpr]);
-
-	// ── Animation loop ────────────────────────────────────────────────────────
-	const startLoop = useCallback(() => {
-		if (!ctxRef.current || !canvasRef.current) return;
-		const canvas = canvasRef.current;
-		const ctx    = ctxRef.current;
-
-		const tick = (now: number) => {
-			if (pausedRef.current) return;
-
-			const delta = lastTimeRef.current === 0 ? 16 : now - lastTimeRef.current;
-			lastTimeRef.current = now;
-
-			// FPS tracking + adaptive DPR
-			const fps = 1000 / Math.max(delta, 1);
-			fpsTracker.current.push(fps);
-			const avgFps = fpsTracker.current.avg();
-
-			if (adaptive) {
-				if (avgFps < 30 && dprRef.current > 0.5) {
-					// Performance struggling — reduce resolution
-					const newDpr = Math.max(0.5, dprRef.current * 0.92);
-					if (Math.abs(newDpr - dprRef.current) > 0.01) {
-						const cssW = parseInt(canvas.style.width, 10)  || canvas.offsetWidth;
-						const cssH = parseInt(canvas.style.height, 10) || canvas.offsetHeight;
-						dprRef.current = newDpr;
-						canvas.width   = Math.round(cssW * newDpr);
-						canvas.height  = Math.round(cssH * newDpr);
-						if (ctx instanceof CanvasRenderingContext2D) {
-							ctx.setTransform(newDpr, 0, 0, newDpr, 0, 0);
-						}
-					}
-				} else if (avgFps > 55) {
-					// GPU has headroom — restore resolution toward target
-					const rawDpr  = dprProp === "auto" ? (window.devicePixelRatio || 1) : dprProp;
-					const target  = Math.min(rawDpr, maxDpr);
-					if (dprRef.current < target - 0.01) {
-						const newDpr = Math.min(target, dprRef.current * 1.04);
-						const cssW   = parseInt(canvas.style.width, 10)  || canvas.offsetWidth;
-						const cssH   = parseInt(canvas.style.height, 10) || canvas.offsetHeight;
-						dprRef.current = newDpr;
-						canvas.width   = Math.round(cssW * newDpr);
-						canvas.height  = Math.round(cssH * newDpr);
-						if (ctx instanceof CanvasRenderingContext2D) {
-							ctx.setTransform(newDpr, 0, 0, newDpr, 0, 0);
-						}
-					}
-				}
-			}
-
-			if (graphicsEngineRef.current && graphics) {
-				graphicsEngineRef.current.render(graphics.scene, delta, frameRef.current++);
-			} else {
-				onDraw?.(ctx, canvas, delta, frameRef.current++);
-			}
-			rafRef.current = requestAnimationFrame(tick);
-		};
-
-		lastTimeRef.current = 0;
-		rafRef.current = requestAnimationFrame(tick);
-	}, [onDraw, graphics, adaptive, dprProp, maxDpr]);
-
-	const stopLoop = useCallback(() => {
-		cancelAnimationFrame(rafRef.current);
-	}, []);
-
-	const pauseLoop = useCallback(() => {
-		pausedRef.current = true;
-		stopLoop();
-	}, [stopLoop]);
-
-	const resumeLoop = useCallback(() => {
-		if (!pausedRef.current) return;
-		pausedRef.current  = false;
-		lastTimeRef.current = 0; // reset delta — prevents huge dt on resume
-		startLoop();
-	}, [startLoop]);
-
-	// ── SSR / pre-mount — must be declared before setup effect ─────────────
-	const [canvasMounted, setCanvasMounted] = React.useState(false);
-	React.useEffect(() => { setCanvasMounted(true); }, []);
-
-	// ── Main setup effect ─────────────────────────────────────────────────────
 	useEffect(() => {
 		const canvas = canvasRef.current;
 		if (!canvas) return;
 
-		// Initialise context
-		const result = getContext(canvas, mode, { alpha, antialias, powerPreference });
-		if (!result) {
-			console.warn("[EngineCanvas] Could not obtain a rendering context.");
+		const contextResult = getContext(canvas, resolvedMode, {
+			alpha,
+			antialias,
+			desynchronized,
+			powerPreference,
+		});
+		if (!contextResult) {
+			console.warn(`[EngineCanvas] Could not obtain a ${resolvedMode} rendering context.`);
 			return;
 		}
-		ctxRef.current = result.ctx;
 
-		// Initial size
-		const cssW = width  ?? canvas.offsetWidth  ?? 300;
-		const cssH = height ?? canvas.offsetHeight ?? 150;
-		applyDPR(canvas, cssW, cssH);
+		const context = contextResult.ctx;
+		let graphicsEngine: RenderingEngine | null = null;
+		let disposed = false;
+		let contextLost = false;
+		let raf = 0;
+		let running = false;
+		let releaseFrameMonitor: (() => void) | null = null;
+		let drawCompleted = false;
+		let frame = 0;
+		let currentDpr = getTargetDpr(dprProp, maxDpr);
+		let lastCssWidth = 0;
+		let lastCssHeight = 0;
+		let offscreenPaused = false;
+		let hiddenPaused = pauseWhenHidden && document.hidden;
+		const frameClock = new ECFrameClock(48);
 
-		// User setup (still fires even when `graphics` is set — additive, not exclusive)
-		const cleanup = onSetup?.(result.ctx, canvas);
+		const resizeBackingStore = (
+			cssWidth: number,
+			cssHeight: number,
+			dpr: number,
+			notify: boolean,
+		): boolean => {
+			if (cssWidth <= 0 || cssHeight <= 0) return false;
+			lastCssWidth = cssWidth;
+			lastCssHeight = cssHeight;
+			currentDpr = dpr;
 
-		// ── EngineCanvas V2 graphics engine (opt-in) ────────────────────────────
-		let engineDisposed = false;
-		if (graphics) {
-			const engine: RenderingEngine = createRenderingEngine(graphics.engine);
-			const renderContext: ECRenderContext = {
-				canvas,
-				ctx2d: result.resolvedMode === "2d"
-					? (result.ctx as CanvasRenderingContext2D)
-					: undefined,
-				gl: result.resolvedMode !== "2d"
-					? (result.ctx as WebGLRenderingContext | WebGL2RenderingContext)
-					: undefined,
-				width:  cssW,
-				height: cssH,
-				dpr:    dprRef.current,
-			};
-			Promise.resolve(engine.init(renderContext)).then(() => {
-				if (!engineDisposed) graphicsEngineRef.current = engine;
-			});
+			const pixelWidth = Math.max(1, Math.round(cssWidth * dpr));
+			const pixelHeight = Math.max(1, Math.round(cssHeight * dpr));
+			const backingStoreChanged = canvas.width !== pixelWidth || canvas.height !== pixelHeight;
+			if (backingStoreChanged) {
+				canvas.width = pixelWidth;
+				canvas.height = pixelHeight;
+				if (context instanceof CanvasRenderingContext2D) {
+					context.setTransform(dpr, 0, 0, dpr, 0, 0);
+				}
+			}
+
+			if (notify) {
+				graphicsEngine?.resize(cssWidth, cssHeight, dpr);
+				onResizeRef.current?.(context, canvas, cssWidth, cssHeight);
+			}
+			return backingStoreChanged;
+		};
+
+		const initialSize = getCanvasCssSize(canvas, width, height);
+		resizeBackingStore(initialSize.width, initialSize.height, currentDpr, false);
+		const userCleanup = onSetupRef.current?.(context, canvas);
+
+		const shouldPause = (): boolean => offscreenPaused || hiddenPaused || contextLost;
+
+		const stopLoop = (): void => {
+			if (running) {
+				running = false;
+				if (raf !== 0) cancelAnimationFrame(raf);
+				raf = 0;
+				frameClock.discontinuity();
+			}
+			releaseFrameMonitor?.();
+			releaseFrameMonitor = null;
+		};
+
+		const tick = (now: number): void => {
+			if (disposed || shouldPause()) {
+				stopLoop();
+				return;
+			}
+
+			const timing = frameClock.step(now);
+			const delta = timing.delta;
+
+			const currentGraphics = graphicsRef.current;
+			if (currentGraphics) {
+				graphicsEngine?.render(currentGraphics.scene, delta, frame++);
+			} else {
+				const draw = onDrawRef.current;
+				if (!draw) {
+					stopLoop();
+					return;
+				}
+				if (draw(context, canvas, delta, frame++, timing) === false) {
+					drawCompleted = true;
+					stopLoop();
+					return;
+				}
+			}
+
+			raf = requestAnimationFrame(tick);
+		};
+
+		const startLoop = (): void => {
+			if (running || disposed || shouldPause()) return;
+			if (!graphicsRef.current && (drawCompleted || !onDrawRef.current)) return;
+			running = true;
+			releaseFrameMonitor ??= EngineScheduler.acquireFrameMonitor();
+			frameClock.discontinuity();
+			raf = requestAnimationFrame(tick);
+		};
+
+		requestLoopRef.current = () => {
+			if (graphicsRef.current || !onDrawRef.current) return;
+			drawCompleted = false;
+			startLoop();
+		};
+
+		const syncLoopState = (): void => {
+			if (shouldPause()) stopLoop();
+			else startLoop();
+		};
+
+		const handleContextLost = (event: Event): void => {
+			if (contextResult.resolvedMode === "2d") return;
+			event.preventDefault();
+			contextLost = true;
+			stopLoop();
+		};
+		const handleContextRestored = (): void => {
+			if (contextResult.resolvedMode === "2d") return;
+			setContextVersion((version) => version + 1);
+		};
+		if (contextResult.resolvedMode !== "2d") {
+			canvas.addEventListener("webglcontextlost", handleContextLost);
+			canvas.addEventListener("webglcontextrestored", handleContextRestored);
 		}
 
-		// Start the loop
-		startLoop();
-
-		// ── ResizeObserver ─────────────────────────────────────────────────────
 		let resizeObserver: ResizeObserver | undefined;
 		if (isResponsive && typeof ResizeObserver !== "undefined") {
 			resizeObserver = new ResizeObserver((entries) => {
 				const entry = entries[0];
-				if (!entry || !ctxRef.current) return;
-				const { width: rw, height: rh } = entry.contentRect;
-				applyDPR(canvas, rw, rh);
-				graphicsEngineRef.current?.resize(rw, rh);
-				onResize?.(ctxRef.current, canvas, rw, rh);
+				if (!entry) return;
+				const backingStoreChanged = resizeBackingStore(
+					entry.contentRect.width,
+					entry.contentRect.height,
+					currentDpr,
+					true,
+				);
+				if (backingStoreChanged && !graphicsRef.current && onDrawRef.current) {
+					drawCompleted = false;
+					startLoop();
+				}
 			});
 			resizeObserver.observe(canvas);
 		}
 
-		// ── IntersectionObserver — pause when off-screen ───────────────────────
+		const handleWindowResize = (): void => {
+			const nextSize = getCanvasCssSize(canvas, width, height);
+			const nextPixelRatio = getTargetDpr(dprProp, maxDpr);
+			const dprChanged = nextPixelRatio !== currentDpr;
+			const cssSizeChanged = nextSize.width !== lastCssWidth || nextSize.height !== lastCssHeight;
+			const expectedWidth = Math.max(1, Math.round(nextSize.width * nextPixelRatio));
+			const expectedHeight = Math.max(1, Math.round(nextSize.height * nextPixelRatio));
+			const backingStoreChanged = canvas.width !== expectedWidth || canvas.height !== expectedHeight;
+			if (!dprChanged && !cssSizeChanged && !backingStoreChanged) return;
+			const resized = resizeBackingStore(nextSize.width, nextSize.height, nextPixelRatio, true);
+			if (resized && !graphicsRef.current && onDrawRef.current) {
+				drawCompleted = false;
+				startLoop();
+			}
+		};
+		window.addEventListener("resize", handleWindowResize, { passive: true });
+
 		let intersectionObserver: IntersectionObserver | undefined;
 		if (pauseWhenOffscreen && typeof IntersectionObserver !== "undefined") {
 			intersectionObserver = new IntersectionObserver(([entry]) => {
-				if (entry.isIntersecting) resumeLoop();
-				else                      pauseLoop();
-			}, { rootMargin: "200px 0px" }); // start slightly before entering view
+				offscreenPaused = !entry.isIntersecting;
+				syncLoopState();
+			}, { rootMargin: "200px 0px" });
 			intersectionObserver.observe(canvas);
 		}
 
-		// ── Page Visibility API — pause when tab hidden ────────────────────────
-		const onVisibility = pauseWhenHidden
-			? () => { document.hidden ? pauseLoop() : resumeLoop(); }
-			: undefined;
-		if (onVisibility) document.addEventListener("visibilitychange", onVisibility);
+		const handleVisibilityChange = (): void => {
+			hiddenPaused = pauseWhenHidden && document.hidden;
+			syncLoopState();
+		};
+		if (pauseWhenHidden) document.addEventListener("visibilitychange", handleVisibilityChange);
 
-		// ── Cleanup ────────────────────────────────────────────────────────────
+		const initializeGraphics = async (): Promise<void> => {
+			const currentGraphics = graphicsRef.current;
+			if (!currentGraphics) {
+				startLoop();
+				return;
+			}
+
+			try {
+				const engine = await loadRenderingEngine(currentGraphics.engine);
+				const renderContext: ECRenderContext = {
+					canvas,
+					ctx2d: contextResult.resolvedMode === "2d"
+						? context as CanvasRenderingContext2D
+						: undefined,
+					gl: contextResult.resolvedMode !== "2d"
+						? context as WebGLRenderingContext | WebGL2RenderingContext
+						: undefined,
+					width: lastCssWidth,
+					height: lastCssHeight,
+					dpr: currentDpr,
+				};
+				await engine.init(renderContext);
+				if (disposed) {
+					engine.dispose();
+					return;
+				}
+				graphicsEngine = engine;
+				startLoop();
+			} catch (error) {
+				console.error(`[EngineCanvas] Failed to initialize graphics engine "${currentGraphics.engine}".`, error);
+			}
+		};
+		void initializeGraphics();
+
 		return () => {
+			disposed = true;
+			requestLoopRef.current = () => {};
 			stopLoop();
-			cleanup?.();
-			engineDisposed = true;
-			graphicsEngineRef.current?.dispose();
-			graphicsEngineRef.current = null;
+			if (typeof userCleanup === "function") userCleanup();
+			graphicsEngine?.dispose();
+			graphicsEngine = null;
 			resizeObserver?.disconnect();
 			intersectionObserver?.disconnect();
-			if (onVisibility) document.removeEventListener("visibilitychange", onVisibility);
-			ctxRef.current = null;
+			if (contextResult.resolvedMode !== "2d") {
+				canvas.removeEventListener("webglcontextlost", handleContextLost);
+				canvas.removeEventListener("webglcontextrestored", handleContextRestored);
+			}
+			window.removeEventListener("resize", handleWindowResize);
+			if (pauseWhenHidden) document.removeEventListener("visibilitychange", handleVisibilityChange);
 		};
-	// onDraw/onSetup/onResize intentionally excluded — callers should use useCallback
-	// canvasMounted IS included — setup must re-run once the <canvas> is in the DOM
-	// graphics.engine IS included — swapping the engine name must re-init
-	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [mode, alpha, antialias, powerPreference, width, height, isResponsive, canvasMounted, graphics?.engine]);
+	}, [
+		resolvedMode,
+		alpha,
+		antialias,
+		desynchronized,
+		powerPreference,
+		width,
+		height,
+		isResponsive,
+		dprProp,
+		maxDpr,
+		adaptive,
+		adaptiveTargetFps,
+		pauseWhenOffscreen,
+		pauseWhenHidden,
+		graphics?.engine,
+		contextVersion,
+	]);
 
-
-	if (!canvasMounted) {
-		const placeholderW = width  !== undefined ? `${width}px`  : "100%";
-		const placeholderH = height !== undefined ? `${height}px` : "150px";
-		return (
-			<div
-				aria-hidden="true"
-				className={className}
-				style={{
-					width:       placeholderW,
-					height:      placeholderH,
-					background:  "var(--e-canvas-placeholder, transparent)",
-					borderRadius: style?.borderRadius,
-					// Contain sizing — prevents parent reflow
-					contain: "strict",
-					...style,
-				}}
-			/>
-		);
-	}
+	useEffect(() => {
+		if (resolvedOnDraw) requestLoopRef.current();
+	}, [resolvedOnDraw]);
 
 	const canvasStyle: CSSProperties = {
-		// GPU layer promotion
-		transform:   "translateZ(0)",
-		willChange:  "transform",
-		// Isolate from surrounding layout — prevents the canvas from causing
-		// expensive reflows in sibling elements during animation
-		contain:     "strict",
-		display:     "block",
-		// Size
-		...(isResponsive ? { width: "100%", height: "100%" } : {}),
-		...(width  !== undefined ? { width:  `${width}px`  } : {}),
+		transform: "translateZ(0)",
+		contain: "strict",
+		display: "block",
+		...(isResponsive ? { width: "100%", height: "100%", minHeight: "150px" } : {}),
+		...(width !== undefined ? { width: `${width}px` } : {}),
 		...(height !== undefined ? { height: `${height}px` } : {}),
 		...style,
 	};
 
-	return (
-		<canvas
-			ref={canvasRef}
-			className={className}
-			style={canvasStyle}
-		/>
-	);
+	return <canvas ref={canvasRef} className={className} style={canvasStyle} />;
 });
 
-// ── useEngineCanvas hook — low-level API ──────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Low-level hook
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Lower-level hook for when you need direct access to the canvas context
- * outside of a component tree (e.g. integrating with Three.js or Babylon.js).
- *
- * Returns a ref to attach to your <canvas> and a setup function to call
- * after the canvas mounts.
- *
- * @example
- * const { canvasRef, setup } = useEngineCanvas({ mode: "webgl2" });
- * useEffect(() => {
- *   return setup({
- *     onDraw: (gl, canvas, delta) => { ... }
- *   });
- * }, []);
- * return <canvas ref={canvasRef} style={{ width: "100%", height: 400 }} />;
- */
-export function useEngineCanvas(options: Pick<EngineCanvasProps, "mode" | "alpha" | "antialias" | "powerPreference"> = {}) {
+export function useEngineCanvas(
+	options: Pick<EngineCanvasProps, "mode" | "alpha" | "antialias" | "desynchronized" | "powerPreference"> = {},
+) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
+	const mode = options.mode ?? "auto";
+	const alpha = options.alpha ?? false;
+	const antialias = options.antialias ?? true;
+	const desynchronized = options.desynchronized ?? false;
+	const powerPreference = options.powerPreference ?? "high-performance";
 
 	const setup = useCallback((
-		handlers: Pick<EngineCanvasProps, "onSetup" | "onDraw" | "onResize" | "adaptive" | "maxDpr">
+		handlers: Pick<EngineCanvasProps, "adaptive" | "adaptiveTargetFps" | "maxDpr"> & {
+			onSetup?: (ctx: AnyCtx, canvas: HTMLCanvasElement) => (() => void) | void;
+			onDraw?: (
+				ctx: AnyCtx,
+				canvas: HTMLCanvasElement,
+				delta: number,
+				frame: number,
+				timing: EngineCanvasFrameInfo,
+			) => EngineCanvasDrawResult;
+			onResize?: (ctx: AnyCtx, canvas: HTMLCanvasElement, width: number, height: number) => void;
+		},
 	): (() => void) => {
 		const canvas = canvasRef.current;
 		if (!canvas) return () => {};
 
-		const mode            = options.mode ?? "auto";
-		const alpha           = options.alpha ?? false;
-		const antialias       = options.antialias ?? true;
-		const powerPreference = options.powerPreference ?? "high-performance";
-		const maxDpr          = handlers.maxDpr ?? 2;
-		const adaptive        = handlers.adaptive ?? true;
+		const contextResult = getContext(canvas, mode, { alpha, antialias, desynchronized, powerPreference });
+		if (!contextResult) return () => {};
 
-		const result = getContext(canvas, mode, { alpha, antialias, powerPreference });
-		if (!result) return () => {};
-
-		const ctx = result.ctx;
-		const fps = new FPSTracker();
-		let raf   = 0;
-		let last  = 0;
+		const context = contextResult.ctx;
+		const maxDpr = handlers.maxDpr ?? 2;
+		const frameClock = new ECFrameClock(48);
+		let currentDpr = getTargetDpr("auto", maxDpr);
 		let frame = 0;
-		const rawDpr = Math.min(window.devicePixelRatio || 1, maxDpr);
-		canvas.width  = canvas.offsetWidth  * rawDpr;
-		canvas.height = canvas.offsetHeight * rawDpr;
-		if (ctx instanceof CanvasRenderingContext2D) ctx.scale(rawDpr, rawDpr);
+		let raf = 0;
 
-		const cleanup = handlers.onSetup?.(ctx, canvas);
+		const resize = (dpr: number): void => {
+			const cssWidth = canvas.clientWidth || canvas.offsetWidth || 300;
+			const cssHeight = canvas.clientHeight || canvas.offsetHeight || 150;
+			canvas.width = Math.max(1, Math.round(cssWidth * dpr));
+			canvas.height = Math.max(1, Math.round(cssHeight * dpr));
+			currentDpr = dpr;
+			if (context instanceof CanvasRenderingContext2D) {
+				context.setTransform(dpr, 0, 0, dpr, 0, 0);
+			}
+			handlers.onResize?.(context, canvas, cssWidth, cssHeight);
+		};
+		resize(currentDpr);
 
-		const tick = (now: number) => {
-			const delta = last === 0 ? 16 : now - last;
-			last = now;
-			fps.push(1000 / Math.max(delta, 1));
-			handlers.onDraw?.(ctx, canvas, delta, frame++);
+		const cleanup = handlers.onSetup?.(context, canvas);
+		const tick = (now: number): void => {
+			const timing = frameClock.step(now);
+			const delta = timing.delta;
+
+			if (handlers.onDraw?.(context, canvas, delta, frame++, timing) === false) return;
 			raf = requestAnimationFrame(tick);
 		};
-		raf = requestAnimationFrame(tick);
+		if (handlers.onDraw) {
+			frameClock.discontinuity();
+			raf = requestAnimationFrame(tick);
+		}
 
 		return () => {
 			cancelAnimationFrame(raf);
-			cleanup?.();
+			if (typeof cleanup === "function") cleanup();
 		};
-	}, [options]);
+	}, [mode, alpha, antialias, desynchronized, powerPreference]);
 
 	return { canvasRef, setup };
 }

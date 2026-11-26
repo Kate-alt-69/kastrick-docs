@@ -1,273 +1,216 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Engine — EngineNav
-//
-//  Full navigation bar component + the shared anchor-rendering pipeline that
-//  was previously duplicated inside EngineLink.
-//
-//  Routing pipeline (exported for EngineLink to delegate to):
-//    1. External  — <a rel="noopener noreferrer">
-//    2. Animated  — <TransitionLink>  (cprop.link.transition = "page-to-page")
-//    3. Native    — <a>               (default, highest performance)
-//
-//  Schema type: "nav"
-//
-//  Schema example:
-//    {
-//      type: "nav",
-//      props: {
-//        variant : "horizontal",
-//        sticky  : true,
-//        logo    : { src: "/logo.svg", href: "/", alt: "Brand" },
-//        items   : [
-//          { label: "Home",     href: "/" },
-//          { label: "Docs",     href: "/docs",     cprop: { link: { transition: "page-to-page" } } },
-//          { label: "GitHub",   href: "https://github.com/...", target: "_blank" }
-//        ]
-//      }
-//    }
+// Engine — EngineNav
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, {
+	Suspense,
 	forwardRef,
+	lazy,
 	memo,
-	useRef,
-	useState,
 	useCallback,
-	type ReactNode,
-	type ReactElement,
+	useEffect,
+	useMemo,
+	useState,
 	type CSSProperties,
-	type RefObject,
+	type ReactElement,
+	type ReactNode,
 } from "react";
-import { Link as TransitionLink } from "next-view-transitions";
-import { usePathname }            from "next/navigation";
-import { usePropStyles, cpropClass, staticClass } from "../hooks/usePropStyles";
-import { useHandler }             from "../providers/EngineProvider";
-import type { BaseNodeProps }     from "../schema/types";
+import NextLink from "next/link";
+import { usePathname } from "next/navigation";
+import { staticClass, useCpropClass, usePropStyles } from "../hooks/usePropStyles";
+import { useStyleCollector } from "../providers/EngineProvider";
+import type { BaseNodeProps } from "../schema/types";
+import { EngineUrlIcon } from "./EngineUrlIcon";
+import type { EngineUrlIconSize } from "../core/engineUrlIcon";
+import type { EngineTransitionInput } from "../core/enginetransitions";
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Shared anchor config  (used by renderEngineAnchor + EngineLink)
-// ─────────────────────────────────────────────────────────────────────────────
+const LazyEngineTransitionLink = lazy(async () => {
+	const transitionModule = await import("./EngineTransitionLink");
+	return { default: transitionModule.EngineTransitionLink as React.ComponentType<any> };
+});
 
 export interface EngineAnchorConfig {
-	href:        string;
-	target?:     string;
-	transition?: string;
-	className?:  string;
-	children?:   ReactNode;
-	onClick?:    React.MouseEventHandler<HTMLAnchorElement>;
-	ref?:        React.Ref<HTMLAnchorElement>;
-	style?:      CSSProperties;
+	href: string;
+	target?: string;
+	transition?: EngineTransitionInput;
+	className?: string;
+	children?: ReactNode;
+	onClick?: React.MouseEventHandler<HTMLAnchorElement>;
+	ref?: React.Ref<HTMLAnchorElement>;
+	style?: CSSProperties;
 	"aria-label"?: string;
 	"aria-current"?: React.AriaAttributes["aria-current"];
+	"emd_show-url-icon"?: boolean;
+	"emd_url-icon-size"?: EngineUrlIconSize;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Shared routing pipeline  (previously inline in EngineLink)
-//
-//  All anchor rendering in the engine routes through here so the three
-//  navigation strategies stay in one place.
-// ─────────────────────────────────────────────────────────────────────────────
+function isExternalHref(href: string, target?: string): boolean {
+	return target === "_blank" || href.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(href);
+}
 
-export function renderEngineAnchor(cfg: EngineAnchorConfig): ReactElement {
-	const {
-		href,
-		target,
-		transition,
-		className,
-		children,
-		onClick,
-		ref,
-		style,
-		"aria-label":   ariaLabel,
-		"aria-current": ariaCurrent,
-	} = cfg;
+function hasAnimatedTransition(transition: EngineTransitionInput | undefined): boolean {
+	if (!transition) return false;
+	if (typeof transition === "string") return transition.trim().length > 0 && transition !== "instant";
+	return transition.type !== "instant";
+}
 
-	const isExternal = href.startsWith("http://")
-		|| href.startsWith("https://")
-		|| href.startsWith("//")
-		|| target === "_blank";
-
-	// 1. External routing
-	if (isExternal) {
-		return (
-			<a
-				ref={ref}
-				href={href}
-				target={target ?? "_blank"}
-				rel="noopener noreferrer"
-				className={className}
-				onClick={onClick}
-				style={style}
-				aria-label={ariaLabel}
-				aria-current={ariaCurrent}
-			>
-				{children}
-			</a>
-		);
-	}
-
-	// 2. Animated page transitions (opt-in — transition = "page-to-page")
-	if (transition === "page-to-page") {
-		return (
-			<TransitionLink
-				ref={ref}
-				href={href}
-				target={target}
-				className={className}
-				onClick={onClick}
-				style={style}
-				aria-label={ariaLabel}
-				aria-current={ariaCurrent}
-			>
-				{children}
-			</TransitionLink>
-		);
-	}
-
-	// 3. Native high-performance anchor (default)
+function renderNextAnchor(cfg: EngineAnchorConfig): ReactElement {
 	return (
-		<a
-			ref={ref}
-			href={href}
-			target={target}
-			className={className}
-			onClick={onClick}
-			style={style}
-			aria-label={ariaLabel}
-			aria-current={ariaCurrent}
+		<NextLink
+			ref={cfg.ref}
+			href={cfg.href}
+			target={cfg.target}
+			className={cfg.className}
+			onClick={cfg.onClick}
+			style={cfg.style}
+			aria-label={cfg["aria-label"]}
+			aria-current={cfg["aria-current"]}
 		>
-			{children}
-		</a>
+			{cfg.children}
+		</NextLink>
 	);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  EngineNav types
-// ─────────────────────────────────────────────────────────────────────────────
+export function renderEngineAnchor(cfg: EngineAnchorConfig): ReactElement {
+	const {
+		href, target, transition, className, children, onClick, ref, style,
+		"aria-label": ariaLabel, "aria-current": ariaCurrent,
+	} = cfg;
+	const anchorChildren = cfg["emd_show-url-icon"] === true
+		? <>{<EngineUrlIcon href={href} size={cfg["emd_url-icon-size"] ?? "auto"} />}{children}</>
+		: children;
+	if (isExternalHref(href, target)) {
+		return (
+			<a ref={ref} href={href} target={target ?? "_blank"} rel="noopener noreferrer" className={className} onClick={onClick} style={style} aria-label={ariaLabel} aria-current={ariaCurrent}>
+				{anchorChildren}
+			</a>
+		);
+	}
+	if (hasAnimatedTransition(transition)) {
+		const nextAnchor = renderNextAnchor({ ...cfg, children: anchorChildren });
+		return (
+			<Suspense fallback={nextAnchor}>
+				<LazyEngineTransitionLink ref={ref} href={href} transition={transition} target={target} className={className} onClick={onClick} style={style} aria-label={ariaLabel} aria-current={ariaCurrent}>
+					{anchorChildren}
+				</LazyEngineTransitionLink>
+			</Suspense>
+		);
+	}
+	return renderNextAnchor(cfg);
+}
 
 export interface EngineNavItem {
-	label:       string;
-	href?:       string;
-	target?:     string;
-	/** Supports the same cprop.link API as EngineLink */
-	cprop?:      { link?: { transition?: string; href?: string } };
-	/** Override active state — auto-detected from pathname when omitted */
-	active?:     boolean;
-	/** Sub-items render as a dropdown */
-	children?:   EngineNavItem[];
+	label: string;
+	href?: string;
+	target?: string;
+	cprop?: { link?: { transition?: EngineTransitionInput; href?: string } };
+	"emd_show-url-icon"?: boolean;
+	"emd_url-icon-size"?: EngineUrlIconSize;
+	active?: boolean;
+	children?: EngineNavItem[];
 }
 
 export interface EngineNavLogo {
-	src?:    string;
-	href?:   string;
-	alt?:    string;
-	width?:  number | string;
+	src?: string;
+	href?: string;
+	alt?: string;
+	width?: number | string;
 	height?: number | string;
 }
 
 export type EngineNavVariant = "horizontal" | "vertical" | "minimal";
 
+export type EngineNavThemeStyles = Partial<Record<
+	"inner" | "items" | "item" | "activeItem" | "dropdown" | "logo" | "mobileToggle" | "mobileMenu",
+	CSSProperties
+>>;
+
 export interface EngineNavProps extends Omit<BaseNodeProps, "onClick"> {
-	/** Layout variant (default: "horizontal") */
-	variant?:          EngineNavVariant;
-	/** Stick to top of viewport */
-	sticky?:           boolean;
-	/** Logo config — renders left of items in horizontal mode */
-	logo?:             EngineNavLogo;
-	/** Navigation items */
-	items?:            EngineNavItem[];
-	/** Pixel width below which the mobile hamburger activates (default: 768) */
+	variant?: EngineNavVariant;
+	sticky?: boolean;
+	logo?: EngineNavLogo;
+	items?: EngineNavItem[];
 	mobileBreakpoint?: number;
-	/** Pass-through children rendered after items */
-	children?:         ReactNode;
+	children?: ReactNode;
+	engineThemeStyles?: EngineNavThemeStyles;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Internal: nav item renderer
-// ─────────────────────────────────────────────────────────────────────────────
+function comparableNavPath(href: string): string | null {
+	if (!href || href === "#" || href.startsWith("?") || href.startsWith("#") || isExternalHref(href)) return null;
+	const clean = href.split("#", 1)[0].split("?", 1)[0] || "/";
+	if (!clean.startsWith("/")) return null;
+	return clean.length > 1 ? clean.replace(/\/+$/, "") : "/";
+}
+
+/** Route-segment aware active matching: `/about` never matches `/about-us`. */
+export function isEngineNavHrefActive(pathname: string, href: string): boolean {
+	const targetPath = comparableNavPath(href);
+	if (!targetPath || !pathname) return false;
+	const currentPath = pathname.length > 1 ? pathname.replace(/\/+$/, "") : "/";
+	if (targetPath === "/") return currentPath === "/";
+	return currentPath === targetPath || currentPath.startsWith(`${targetPath}/`);
+}
 
 interface NavItemProps {
-	item:     EngineNavItem;
+	item: EngineNavItem;
 	pathname: string;
-	variant:  EngineNavVariant;
+	variant: EngineNavVariant;
+	themeStyles?: EngineNavThemeStyles;
 }
 
-const NavItem = memo(function NavItem({ item, pathname, variant }: NavItemProps): ReactElement {
+const NavItem = memo(function NavItem({ item, pathname, variant, themeStyles }: NavItemProps): ReactElement {
+	const styleCollector = useStyleCollector();
 	const [open, setOpen] = useState(false);
-
-	const href       = item.cprop?.link?.href ?? item.href ?? "#";
+	const href = item.cprop?.link?.href ?? item.href ?? "#";
 	const transition = item.cprop?.link?.transition;
-	const isActive   = item.active ?? (href !== "#" && pathname.startsWith(href) && (href === "/" ? pathname === "/" : true));
-	const hasChildren = item.children && item.children.length > 0;
+	const isActive = item.active ?? isEngineNavHrefActive(pathname, href);
+	const hasChildren = Boolean(item.children?.length);
 
-	const itemClass = staticClass({
-		position:   "relative",
-		display:    "inline-flex",
+	const itemClass = useMemo(() => staticClass({
+		position: "relative", display: "inline-flex", alignItems: "center", gap: "0.25rem",
+	}, styleCollector), [styleCollector]);
+	const anchorClass = useMemo(() => staticClass({
+		display: "inline-flex",
 		alignItems: "center",
-		gap:        "0.25rem",
-	});
-
-	const anchorClass = [
-		staticClass({
-			display:        "inline-flex",
-			alignItems:     "center",
-			padding:        variant === "vertical" ? "0.5rem 1rem" : "0.375rem 0.75rem",
-			borderRadius:   "0.375rem",
-			fontSize:       "0.9375rem",
-			fontWeight:     isActive ? "600" : "400",
-			textDecoration: "none",
-			transition:     "background 0.15s, color 0.15s",
-			color:          isActive
-				? "var(--engine-nav-active-color, var(--color-primary, #fff))"
-				: "var(--engine-nav-color, inherit)",
-			background: isActive
-				? "var(--engine-nav-active-bg, rgba(255,255,255,0.1))"
-				: "transparent",
-		}),
-	].filter(Boolean).join(" ");
-
-	const dropdownClass = staticClass({
-		position:        "absolute",
-		top:             "calc(100% + 0.25rem)",
-		left:            0,
-		minWidth:        "10rem",
-		background:      "var(--engine-nav-dropdown-bg, #1a1a1a)",
-		border:          "1px solid var(--engine-nav-dropdown-border, rgba(255,255,255,0.1))",
-		borderRadius:    "0.5rem",
-		padding:         "0.375rem",
-		zIndex:          50,
-		display:         open ? "flex" : "none",
-		flexDirection:   "column",
-		gap:             "0.125rem",
-		boxShadow:       "0 4px 24px rgba(0,0,0,0.3)",
-	});
+		padding: variant === "vertical" ? "0.5rem 1rem" : "0.375rem 0.75rem",
+		borderRadius: "0.375rem",
+		fontSize: "0.9375rem",
+		fontWeight: isActive ? "600" : "400",
+		textDecoration: "none",
+		transition: "background 0.15s, color 0.15s",
+		color: isActive ? "var(--engine-nav-active-color, var(--color-primary, #fff))" : "var(--engine-nav-color, inherit)",
+		background: isActive ? "var(--engine-nav-active-bg, rgba(255,255,255,0.1))" : "transparent",
+	}, styleCollector), [isActive, styleCollector, variant]);
+	const dropdownClass = useMemo(() => staticClass({
+		position: "absolute",
+		top: "calc(100% + 0.25rem)",
+		left: 0,
+		minWidth: "10rem",
+		background: "var(--engine-nav-dropdown-bg, #1a1a1a)",
+		border: "1px solid var(--engine-nav-dropdown-border, rgba(255,255,255,0.1))",
+		borderRadius: "0.5rem",
+		padding: "0.375rem",
+		zIndex: 50,
+		display: "flex",
+		flexDirection: "column",
+		gap: "0.125rem",
+		boxShadow: "0 4px 24px rgba(0,0,0,0.3)",
+	}, styleCollector), [styleCollector]);
 
 	if (hasChildren) {
 		return (
 			<div className={itemClass}>
-				<button
-					aria-expanded={open}
-					aria-haspopup="menu"
-					onClick={() => setOpen((v) => !v)}
-					className={anchorClass}
-					style={{ cursor: "pointer", border: "none", background: "transparent" }}
-				>
+				<button aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((value) => !value)} className={anchorClass} style={{ cursor: "pointer", border: "none", background: "transparent", ...themeStyles?.item, ...(isActive ? themeStyles?.activeItem : {}) }}>
 					{item.label}
-					<svg
-						width="12"
-						height="12"
-						viewBox="0 0 12 12"
-						fill="none"
-						style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}
-					>
+					<svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
 						<path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
 					</svg>
 				</button>
-				<div role="menu" className={dropdownClass}>
-					{item.children!.map((child, i) => (
-						<NavItem key={i} item={child} pathname={pathname} variant={variant} />
+				<div role="menu" className={dropdownClass} style={{ ...themeStyles?.dropdown, display: open ? "flex" : "none" }}>
+					{item.children!.map((child, index) => (
+						<NavItem key={`${child.cprop?.link?.href ?? child.href ?? child.label}-${index}`} item={child} pathname={pathname} variant={variant} themeStyles={themeStyles} />
 					))}
 				</div>
 			</div>
@@ -278,197 +221,106 @@ const NavItem = memo(function NavItem({ item, pathname, variant }: NavItemProps)
 		<div className={itemClass}>
 			{renderEngineAnchor({
 				href,
-				target:       item.target,
+				target: item.target,
 				transition,
-				className:    anchorClass,
-				children:     item.label,
+				className: anchorClass,
+				style: { ...themeStyles?.item, ...(isActive ? themeStyles?.activeItem : {}) },
+				children: item.label,
 				"aria-current": isActive ? "page" : undefined,
+				"emd_show-url-icon": item["emd_show-url-icon"],
+				"emd_url-icon-size": item["emd_url-icon-size"],
 			})}
 		</div>
 	);
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  EngineNav component
-// ─────────────────────────────────────────────────────────────────────────────
-
 export const EngineNav = memo(
 	forwardRef<HTMLElement, EngineNavProps>((props, ref) => {
 		const {
-			variant          = "horizontal",
-			sticky           = false,
-			logo,
-			items            = [],
-			mobileBreakpoint = 768,
-			children,
-			className,
-			cprop,
-			id,
-			point,
-			style,
-			...restProps
+			variant = "horizontal", sticky = false, logo, items = [], mobileBreakpoint = 768,
+			children, className, cprop, id, point, style, engineThemeStyles, ...restProps
 		} = props;
-
-		const pathname  = usePathname();
+		const styleCollector = useStyleCollector();
+		const routerPathname = usePathname() ?? "";
+		const [pathname, setPathname] = useState("");
 		const [mobileOpen, setMobileOpen] = useState(false);
-		const toggleMobile = useCallback(() => setMobileOpen((v) => !v), []);
-
-		const hoverClass = cpropClass(cprop);
-
+		useEffect(() => setPathname(routerPathname), [routerPathname]);
+		const toggleMobile = useCallback(() => setMobileOpen((value) => !value), []);
+		const hoverClass = useCpropClass(cprop);
 		const navStyle = usePropStyles(restProps as any, style ?? {});
 
-		const navClass = [
+		const navClass = useMemo(() => [
 			staticClass({
-				display:        "flex",
-				alignItems:     variant === "vertical" ? "flex-start" : "center",
-				flexDirection:  variant === "vertical" ? "column" : "row",
-				position:       sticky ? "sticky" : "relative",
-				top:            sticky ? 0 : undefined,
-				zIndex:         sticky ? 40 : undefined,
-				width:          "100%",
-				background:     "var(--engine-nav-bg, transparent)",
-				borderBottom:   variant === "horizontal"
-					? "var(--engine-nav-border, 1px solid rgba(255,255,255,0.08))"
-					: undefined,
-				padding:        variant === "vertical"
-					? "1rem 0"
-					: "0 var(--engine-nav-px, 1.5rem)",
-				gap:            variant === "vertical" ? "0.25rem" : "0",
-				backdropFilter: sticky
-					? "var(--engine-nav-blur, blur(12px))"
-					: undefined,
-			}),
-			hoverClass,
-			className,
-		].filter(Boolean).join(" ") || undefined;
-
-		const innerClass = staticClass({
-			display:        "flex",
-			alignItems:     "center",
-			justifyContent: "space-between",
-			width:          "100%",
-			maxWidth:       "var(--engine-nav-max-width, 1200px)",
-			margin:         "0 auto",
-			minHeight:      variant === "horizontal"
-				? "var(--engine-nav-height, 3.5rem)"
-				: undefined,
-		});
-
-		const itemsClass = staticClass({
-			display:    "flex",
-			alignItems: "center",
-			flexWrap:   "wrap",
-			gap:        "0.125rem",
+				display: "flex",
+				alignItems: variant === "vertical" ? "flex-start" : "center",
+				flexDirection: variant === "vertical" ? "column" : "row",
+				boxSizing: "border-box",
+				position: sticky ? "sticky" : "relative",
+				top: sticky ? 0 : undefined,
+				zIndex: sticky ? 40 : undefined,
+				width: "100%",
+				background: "var(--engine-nav-bg, transparent)",
+				borderBottom: variant === "horizontal" ? "var(--engine-nav-border, 1px solid rgba(255,255,255,0.08))" : undefined,
+				padding: variant === "vertical" ? "1rem 0" : "0 var(--engine-nav-px, 1.5rem)",
+				gap: variant === "vertical" ? "0.25rem" : "0",
+				backdropFilter: sticky ? "var(--engine-nav-blur, blur(12px))" : undefined,
+			}, styleCollector), hoverClass, className,
+		].filter(Boolean).join(" ") || undefined, [className, hoverClass, sticky, styleCollector, variant]);
+		const innerClass = useMemo(() => staticClass({
+			display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+			maxWidth: "var(--engine-nav-max-width, 1200px)", margin: "0 auto",
+			minHeight: variant === "horizontal" ? "var(--engine-nav-height, 3.5rem)" : undefined,
+		}, styleCollector), [styleCollector, variant]);
+		const itemsClass = useMemo(() => staticClass({
+			display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.125rem",
 			flexDirection: variant === "vertical" ? "column" : "row",
-		});
+		}, styleCollector), [styleCollector, variant]);
+		const desktopItemsClass = useMemo(() => staticClass({
+			display: "none", [`@media(min-width: ${mobileBreakpoint}px)`]: { display: "flex" },
+		}, styleCollector), [mobileBreakpoint, styleCollector]);
+		const logoClass = useMemo(() => staticClass({ flexShrink: 0, display: "flex", alignItems: "center" }, styleCollector), [styleCollector]);
+		const mobileToggleClass = useMemo(() => staticClass({
+			display: "flex", alignItems: "center", justifyContent: "center", width: "2.5rem", height: "2.5rem",
+			border: "none", background: "transparent", cursor: "pointer", borderRadius: "0.375rem", color: "inherit",
+			[`@media(min-width: ${mobileBreakpoint}px)`]: { display: "none" },
+		}, styleCollector), [mobileBreakpoint, styleCollector]);
+		const mobileMenuClass = useMemo(() => staticClass({
+			display: "flex", flexDirection: "column", gap: "0.125rem", padding: "0.75rem",
+			borderTop: "1px solid var(--engine-nav-border, rgba(255,255,255,0.08))", width: "100%",
+			[`@media(min-width: ${mobileBreakpoint}px)`]: { display: "none" },
+		}, styleCollector), [mobileBreakpoint, styleCollector]);
 
 		return (
-			<nav
-				ref={ref}
-				id={id ?? point}
-				className={navClass}
-				style={navStyle}
-				aria-label="Main navigation"
-				{...restProps}
-			>
-				<div className={innerClass}>
-					{/* Logo */}
+			<nav ref={ref} id={id ?? point} className={navClass} style={navStyle} aria-label="Main navigation">
+				<div className={innerClass} style={engineThemeStyles?.inner}>
 					{logo && (
-						<div className={staticClass({ flexShrink: 0, display: "flex", alignItems: "center" })}>
+						<div className={logoClass} style={engineThemeStyles?.logo}>
 							{renderEngineAnchor({
-								href:      logo.href ?? "/",
-								children:  logo.src
-									? (
-										<img
-											src={logo.src}
-											alt={logo.alt ?? "Logo"}
-											width={logo.width as any}
-											height={logo.height as any}
-											style={{ display: "block" }}
-										/>
-									)
-									: (logo.alt ?? ""),
+								href: logo.href ?? "/",
+								children: logo.src ? <img src={logo.src} alt={logo.alt ?? "Logo"} width={logo.width as any} height={logo.height as any} style={{ display: "block" }} /> : (logo.alt ?? ""),
 								"aria-label": logo.alt ?? "Home",
 							})}
 						</div>
 					)}
-
-					{/* Desktop items */}
 					{items.length > 0 && (
-						<div
-							className={[
-								itemsClass,
-								staticClass({
-									display: "none",
-									[`@media(min-width: ${mobileBreakpoint}px)`]: {
-										display: "flex",
-									},
-								}),
-							].filter(Boolean).join(" ")}
-						>
-							{items.map((item, i) => (
-								<NavItem key={i} item={item} pathname={pathname} variant={variant} />
-							))}
+						<div className={[itemsClass, desktopItemsClass].filter(Boolean).join(" ")} style={engineThemeStyles?.items}>
+							{items.map((item, index) => <NavItem key={`${item.cprop?.link?.href ?? item.href ?? item.label}-${index}`} item={item} pathname={pathname} variant={variant} themeStyles={engineThemeStyles} />)}
 						</div>
 					)}
-
-					{/* Pass-through slot */}
 					{children}
-
-					{/* Mobile hamburger */}
 					{items.length > 0 && (
-						<button
-							aria-label={mobileOpen ? "Close menu" : "Open menu"}
-							aria-expanded={mobileOpen}
-							aria-controls="engine-nav-mobile"
-							onClick={toggleMobile}
-							className={staticClass({
-								display:         "flex",
-								alignItems:      "center",
-								justifyContent:  "center",
-								width:           "2.5rem",
-								height:          "2.5rem",
-								border:          "none",
-								background:      "transparent",
-								cursor:          "pointer",
-								borderRadius:    "0.375rem",
-								color:           "inherit",
-							})}
-						>
-							{mobileOpen
-								? (
-									// ✕
-									<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-										<path d="M4 4l12 12M16 4L4 16" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-									</svg>
-								)
-								: (
-									// ☰
-									<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-										<path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-									</svg>
-								)}
+						<button aria-label={mobileOpen ? "Close menu" : "Open menu"} aria-expanded={mobileOpen} aria-controls="engine-nav-mobile" onClick={toggleMobile} className={mobileToggleClass} style={engineThemeStyles?.mobileToggle}>
+							{mobileOpen ? (
+								<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 4l12 12M16 4L4 16" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" /></svg>
+							) : (
+								<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" /></svg>
+							)}
 						</button>
 					)}
 				</div>
-
-				{/* Mobile drawer */}
 				{mobileOpen && items.length > 0 && (
-					<div
-						id="engine-nav-mobile"
-						role="menu"
-						className={staticClass({
-							display:       "flex",
-							flexDirection: "column",
-							gap:           "0.125rem",
-							padding:       "0.75rem",
-							borderTop:     "1px solid var(--engine-nav-border, rgba(255,255,255,0.08))",
-							width:         "100%",
-						})}
-					>
-						{items.map((item, i) => (
-							<NavItem key={i} item={item} pathname={pathname} variant="vertical" />
-						))}
+					<div id="engine-nav-mobile" role="menu" className={mobileMenuClass} style={engineThemeStyles?.mobileMenu}>
+						{items.map((item, index) => <NavItem key={`${item.cprop?.link?.href ?? item.href ?? item.label}-${index}`} item={item} pathname={pathname} variant="vertical" themeStyles={engineThemeStyles} />)}
 					</div>
 				)}
 			</nav>

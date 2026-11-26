@@ -1,190 +1,183 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  Engine — Schema Validator
-//
-//  Lightweight structural validation for PageSchema and SchemaNode trees.
-//  Zero dependencies — no Zod, no ajv.
-//
-//  USE IN DEVELOPMENT: wrap your createPage call with validatePageSchema()
-//  to catch structural errors before they crash the renderer at runtime.
-//
-//  USE IN SchemaRenderer: optionally enable with NEXT_PUBLIC_ENGINE_VALIDATE=1
-//  to get clean console warnings instead of runtime crashes.
-//
-//  The validator catches:
-//    · Missing required props (image src/alt, markdown content)
-//    · Wrong value types (passing array where string expected)
-//    · Unknown node types (typos in "type" field)
-//    · Deeply nested errors with a readable path like "root.children[2].props.src"
-//
-//  It does NOT block rendering — it emits console.warn in development and
-//  returns a list of ValidationError objects the caller can act on.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { SchemaNode, PageSchema } from "../schema/types";
+import type { PageSchema, SchemaNode } from "../schema/types";
 import { hasComponent } from "./registry";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
 export interface ValidationError {
-	/** Dot-path to the offending node, e.g. "root.children[2].props.src" */
-	path:    string;
-	/** Human-readable description of what's wrong */
+	path: string;
 	message: string;
-	/** Severity level */
-	level:   "error" | "warn";
+	level: "error" | "warn";
 }
 
 export interface ValidationResult {
-	valid:  boolean;
+	valid: boolean;
 	errors: ValidationError[];
 }
 
-// ── Required props per type ───────────────────────────────────────────────────
-
 const REQUIRED_PROPS: Partial<Record<string, Array<{ key: string; type: string }>>> = {
-	image:          [{ key: "src", type: "string" }, { key: "alt", type: "string" }],
-	markdown:       [],  // content or filePath — validated below
-	button:         [],  // label or children — soft check
+	image: [{ key: "src", type: "string" }, { key: "alt", type: "string" }],
+	markdown: [],
+	button: [],
 	"custom-select": [{ key: "name", type: "string" }, { key: "options", type: "array" }],
-	canvas:         [],  // no required props but warn if no handlers
-	slot:           [{ key: "name", type: "string" }],
+	canvas: [],
+	slot: [{ key: "name", type: "string" }],
 };
 
-// ── Node validator ────────────────────────────────────────────────────────────
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
+}
 
-function validateNode(node: SchemaNode, path: string): ValidationError[] {
-	const errors: ValidationError[] = [];
+function describeValue(value: unknown): string {
+	try {
+		const serialized = JSON.stringify(value);
+		return serialized === undefined ? String(value) : serialized;
+	} catch {
+		return Object.prototype.toString.call(value);
+	}
+}
 
-	// ── type must be a non-empty string ───────────────────────────────────────
-	if (!node.type || typeof node.type !== "string") {
+function validateNode(
+	value: unknown,
+	path: string,
+	errors: ValidationError[],
+	ancestors: WeakSet<object>,
+): void {
+	if (!isPlainRecord(value)) {
 		errors.push({
 			path,
-			message: `node.type is missing or not a string (got ${JSON.stringify(node.type)})`,
-			level:   "error",
-		});
-		return errors; // can't validate further without a type
-	}
-
-	// ── warn on unknown types (not in registry + not a string wildcard) ───────
-	if (!hasComponent(node.type)) {
-		errors.push({
-			path,
-			message: `unknown node type "${node.type}" — not registered in the component registry`,
-			level:   "warn",
-		});
-	}
-
-	// ── props must be object or absent ────────────────────────────────────────
-	if (node.props !== undefined && (typeof node.props !== "object" || Array.isArray(node.props))) {
-		errors.push({
-			path: `${path}.props`,
-			message: "props must be a plain object",
+			message: `node must be a plain SchemaNode object (got ${describeValue(value)})`,
 			level: "error",
 		});
+		return;
 	}
 
-	const props = node.props ?? {};
+	if (ancestors.has(value)) {
+		errors.push({
+			path,
+			message: "circular schema reference detected",
+			level: "error",
+		});
+		return;
+	}
 
-	// ── required prop checks ──────────────────────────────────────────────────
-	const required = REQUIRED_PROPS[node.type];
-	if (required) {
-		for (const { key, type } of required) {
-			const val = props[key];
-			if (val === undefined || val === null) {
+	ancestors.add(value);
+	try {
+		const node = value as unknown as SchemaNode;
+
+		if (!node.type || typeof node.type !== "string") {
+			errors.push({
+				path,
+				message: `node.type is missing or not a string (got ${describeValue(node.type)})`,
+				level: "error",
+			});
+			return;
+		}
+
+		if (!hasComponent(node.type)) {
+			errors.push({
+				path,
+				message: `unknown node type "${node.type}" — not registered in the component registry`,
+				level: "warn",
+			});
+		}
+
+		const propsAreValid = node.props === undefined || isPlainRecord(node.props);
+		if (!propsAreValid) {
+			errors.push({
+				path: `${path}.props`,
+				message: "props must be a plain object",
+				level: "error",
+			});
+		}
+		const props = propsAreValid && node.props ? node.props : {};
+
+		for (const { key, type } of REQUIRED_PROPS[node.type] ?? []) {
+			const propValue = props[key];
+			if (propValue === undefined || propValue === null) {
 				errors.push({
-					path:    `${path}.props.${key}`,
+					path: `${path}.props.${key}`,
 					message: `"${node.type}" nodes require a ${key} prop`,
-					level:   "error",
+					level: "error",
 				});
-			} else if (type === "array" && !Array.isArray(val)) {
+			} else if (type === "array" && !Array.isArray(propValue)) {
 				errors.push({
-					path:    `${path}.props.${key}`,
-					message: `"${node.type}" prop "${key}" must be an array (got ${typeof val})`,
-					level:   "error",
+					path: `${path}.props.${key}`,
+					message: `"${node.type}" prop "${key}" must be an array (got ${typeof propValue})`,
+					level: "error",
 				});
-			} else if (type !== "array" && typeof val !== type) {
+			} else if (type !== "array" && typeof propValue !== type) {
 				errors.push({
-					path:    `${path}.props.${key}`,
-					message: `"${node.type}" prop "${key}" must be a ${type} (got ${typeof val})`,
-					level:   "error",
+					path: `${path}.props.${key}`,
+					message: `"${node.type}" prop "${key}" must be a ${type} (got ${typeof propValue})`,
+					level: "error",
 				});
 			}
 		}
-	}
 
-	// ── markdown: must have content or filePath ───────────────────────────────
-	if (node.type === "markdown" && !props.content && !props.filePath) {
-		errors.push({
-			path:    `${path}.props`,
-			message: "markdown nodes require either a content or filePath prop",
-			level:   "warn",
-		});
-	}
+		if (node.type === "markdown" && !props.content && !props.filePath) {
+			errors.push({
+				path: `${path}.props`,
+				message: "markdown nodes require either a content or filePath prop",
+				level: "warn",
+			});
+		}
 
-	// ── canvas: warn if no handlers ───────────────────────────────────────────
-	if (node.type === "canvas" && !props.onDraw && !props.onSetup) {
-		errors.push({
-			path:    `${path}.props`,
-			message: "canvas node has no onDraw or onSetup handler — it will render a blank canvas",
-			level:   "warn",
-		});
-	}
+		if (node.type === "canvas" && !props.onDraw && !props.onSetup && !props.graphics) {
+			errors.push({
+				path: `${path}.props`,
+				message: "canvas node has no callback or graphics source — it will render a blank canvas",
+				level: "warn",
+			});
+		}
 
-	// ── children must be array or string ─────────────────────────────────────
-	if (node.children !== undefined && !Array.isArray(node.children) && typeof node.children !== "string") {
-		errors.push({
-			path:    `${path}.children`,
-			message: "children must be an array of SchemaNode or a plain string",
-			level:   "error",
-		});
-	}
+		if (node.children !== undefined && !Array.isArray(node.children) && typeof node.children !== "string") {
+			errors.push({
+				path: `${path}.children`,
+				message: "children must be an array of SchemaNode or a plain string",
+				level: "error",
+			});
+		}
 
-	// ── recurse into children ─────────────────────────────────────────────────
-	if (Array.isArray(node.children)) {
-		for (let i = 0; i < node.children.length; i++) {
-			const child = node.children[i] as SchemaNode;
-			if (child && typeof child === "object") {
-				errors.push(...validateNode(child, `${path}.children[${i}]`));
-			} else if (child !== null && child !== undefined && typeof child !== "string") {
-				errors.push({
-					path:    `${path}.children[${i}]`,
-					message: `child at index ${i} must be a SchemaNode object or string (got ${typeof child})`,
-					level:   "error",
-				});
+		if (Array.isArray(node.children)) {
+			for (let index = 0; index < node.children.length; index++) {
+				const child = node.children[index] as unknown;
+				if (typeof child === "string") continue;
+				validateNode(child, `${path}.children[${index}]`, errors, ancestors);
 			}
 		}
+	} finally {
+		ancestors.delete(value);
 	}
-
-	return errors;
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
-/**
- * Validate a SchemaNode tree. Returns all errors found at every depth.
- *
- * @example
- * const result = validateSchema(mySchema.root);
- * if (!result.valid) console.error(result.errors);
- */
 export function validateSchema(root: SchemaNode): ValidationResult {
-	const errors = validateNode(root, "root");
-	return { valid: errors.filter((e) => e.level === "error").length === 0, errors };
+	const errors: ValidationError[] = [];
+	validateNode(root, "root", errors, new WeakSet<object>());
+	return { valid: errors.every((error) => error.level !== "error"), errors };
 }
 
-/**
- * Validate an entire PageSchema including meta and theme.
- * Emits console.warn for each issue in development; returns the result.
- */
 export function validatePageSchema(schema: PageSchema): ValidationResult {
-	const result = validateSchema(schema.root);
-
-	if (process.env.NODE_ENV !== "production" && result.errors.length > 0) {
-		for (const err of result.errors) {
-			const prefix = err.level === "error" ? "❌ [Engine]" : "⚠️  [Engine]";
-			console.warn(`${prefix} ${err.path}: ${err.message}`);
-		}
+	if (!isPlainRecord(schema)) {
+		return {
+			valid: false,
+			errors: [{
+				path: "schema",
+				message: "page schema must be a plain object",
+				level: "error",
+			}],
+		};
 	}
 
+	const result = validateSchema(schema.root);
+	if (process.env.NODE_ENV !== "production" && result.errors.length > 0) {
+		for (const error of result.errors) {
+			const prefix = error.level === "error" ? "❌ [Engine]" : "⚠️  [Engine]";
+			console.warn(`${prefix} ${error.path}: ${error.message}`);
+		}
+	}
 	return result;
 }

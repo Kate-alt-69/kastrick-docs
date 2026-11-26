@@ -21,21 +21,27 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
     "noEmit": true,
+    "baseUrl": ".",
     "paths": {
-      "#module/engine": [
-        "./src/engine/index.ts"
-      ],
       "@/engine": [
         "./src/engine/index.ts"
       ],
-      "@/*": [
-        "./*"
+      "@/ep": [
+        "./src/engine/not-found.tsx"
       ],
       "#module/ep": [
         "./src/engine/not-found.tsx"
+      ],
+      "nextjs-engine/network": [
+        "./src/engine/network.ts"
+      ],
+      "nextjs-engine/server": [
+        "./src/engine/server.ts"
+      ],
+      "@/*": [
+        "./*"
       ]
     },
-    "baseUrl": ".",
     "incremental": true,
     "plugins": [
       {
@@ -44,13 +50,19 @@
     ]
   },
   "include": [
-    "src",
-    "app",
-    "**/*.ts",
-    "**/*.tsx",
+    "next-env.d.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "lib/**/*.ts",
+    "data/**/*.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
     "dist/types/**/*.ts",
     ".next/types/**/*.ts",
-    "dist/dev/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "dist/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

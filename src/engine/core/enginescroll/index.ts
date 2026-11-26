@@ -2,11 +2,10 @@
 // enginescroll/index.ts — Public barrel
 // ============================================================================
 
-// ── Runtime & Entry Point ───────────────────────────────────────────────────
-export { EngineScroll }              from "./EngineScroll";
-export { EngineScrollRuntime }       from "./EngineScrollRuntime";
+export { EngineScroll } from "./EngineScroll";
+export { EngineScrollBehavior } from "./EngineScrollBehavior";
+export { EngineScrollRuntime } from "./EngineScrollRuntime";
 
-// ── React Integration ───────────────────────────────────────────────────────
 export {
 	EngineScrollProvider,
 	useEngineScroll,
@@ -14,33 +13,101 @@ export {
 export type {
 	EngineScrollCtx,
 	EngineScrollProviderProps,
-}                                    from "./EngineScrollProvider";
+} from "./EngineScrollProvider";
 
-// ── Navigation ──────────────────────────────────────────────────────────────
-export { EngineScrollNavigator }     from "./EngineScrollNavigator";
-export type { EngineScrollTarget }   from "./EngineScrollNavigator";
-
-export { EngineScrollMovement }      from "./EngineScrollMovement";
-export { EngineScrollHash }          from "./EngineScrollHash";
-
-// ── URL Protocol ────────────────────────────────────────────────────────────
-export { EngineScrollURL }           from "./EngineScrollURL";
-
-// ── Point Registry ──────────────────────────────────────────────────────────
-// EngineScrollPointManager is the canonical point store.
-// Use it to register named scroll targets from React components.
-export { EngineScrollPointManager }  from "./EngineScrollPointManager";
-export type { EngineRegisteredPoint } from "./EngineScrollPointManager";
-
-// ── Easing ──────────────────────────────────────────────────────────────────
-export { EngineScrollEasing }        from "./EngineScrollEasing";
-
-// ── Types ───────────────────────────────────────────────────────────────────
+export { EngineScrollRange } from "./EngineScrollRange";
 export type {
-	EngineScrollState,
-	EngineScrollPoint,
-	EngineViewport,
+	EngineScrollRangeConfig,
+	EngineScrollRangeSnapshot,
+	EngineScrollRangeTarget,
+} from "./EngineScrollRange";
+
+export { EngineScrollDirector } from "./EngineScrollDirector";
+export type {
+	EngineScrollDirectorConfig,
+	EngineScrollDirectorFrame,
+	EngineScrollDirectorName,
+	EngineScrollDirectorSubscriber,
+	EngineScrollDirectorTimelineFrames,
+} from "./EngineScrollDirector";
+
+export { useEngineScrollTimeline } from "./useEngineScrollTimeline";
+export { EngineScrollTimeline } from "./EngineScrollTimeline";
+export type {
+	EngineScrollTimelineActivityEvent,
+	EngineScrollTimelineActivitySubscriber,
+	EngineScrollTimelineActivityType,
+	EngineScrollTimelineBoundary,
+	EngineScrollTimelineConfig,
+	EngineScrollTimelineCrossEvent,
+	EngineScrollTimelineCrossSubscriber,
+	EngineScrollTimelineFrame,
+	EngineScrollTimelineSource,
+	EngineScrollTimelineSubscriber,
+	EngineScrollTimelineTarget,
+} from "./EngineScrollTimeline";
+export { EngineScrollTimelineTrack } from "./EngineScrollTimelineTrack";
+export type { EngineScrollTimelineKeyframe } from "./EngineScrollTimelineTrack";
+export { bindEngineScrollTimelineStyles } from "./EngineScrollTimelineBinding";
+export type {
+	EngineScrollTimelineFrameSource,
+	EngineScrollTimelineStyleBinding,
+	EngineScrollTimelineStyleBindings,
+	EngineScrollTimelineStyleKeyframes,
+	EngineScrollTimelineStyleRange,
+} from "./EngineScrollTimelineBinding";
+
+export { EngineScrollNavigator } from "./EngineScrollNavigator";
+export type {
+	EngineScrollNavigationOptions,
+	EngineScrollTarget,
+} from "./EngineScrollNavigator";
+
+export { EngineScrollMovement } from "./EngineScrollMovement";
+export { EngineScrollHash } from "./EngineScrollHash";
+export { EngineScrollURL } from "./EngineScrollURL";
+
+export { EngineScrollSnap } from "./EngineScrollSnap";
+export type {
+	EngineScrollSnapMode,
+	EngineScrollSnapOptions,
+} from "./EngineScrollSnap";
+
+export { EngineScrollPointManager } from "./EngineScrollPointManager";
+export type {
+	EngineRegisteredPoint,
+	EngineScrollPointGroupInput,
+	EngineScrollPointLocation,
+	EngineScrollPointOptions,
+	EngineScrollRegisteredPoint,
+	EngineScrollResolvedPoint,
+} from "./EngineScrollPointManager";
+
+export { EngineScrollPointTracker } from "./EngineScrollPointTracker";
+export type {
+	EngineScrollPointChangeSubscriber,
+	EngineScrollPointTrackerConfig,
+	EngineScrollPointTrackerFrame,
+	EngineScrollPointTrackerSource,
+	EngineScrollPointTrackerSubscriber,
+} from "./EngineScrollPointTracker";
+
+export { EngineScrollEasing } from "./EngineScrollEasing";
+export type { EngineScrollEasingFunction } from "./EngineScrollEasing";
+
+export type {
 	EnginePage,
+	EngineScrollAlignment,
 	EngineScrollAnimation,
+	EngineScrollDirection,
+	EngineScrollEasingName,
+	EngineScrollBehaviorPolicy,
+	EngineScrollMoveOptions,
+	EngineScrollBehaviorMode,
+	EngineScrollPoint,
+	EngineScrollReducedMotion,
+	EngineScrollResolvedBehaviorPolicy,
+	EngineScrollState,
 	EngineScrollSubscriber,
-}                                    from "./EngineScrollTypes";
+	EngineViewport,
+} from "./EngineScrollTypes";

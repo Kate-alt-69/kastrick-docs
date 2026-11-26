@@ -1,43 +1,6 @@
 "use client";
 // ─────────────────────────────────────────────────────────────────────────────
 //  Engine — CustomSelect
-//
-//  A fully styled, keyboard-navigable, accessible dropdown component.
-//  Registered as "custom-select" in the component registry.
-//
-//  WHY NOT NATIVE <select>?
-//  Native <select> menus are controlled by the OS, not the browser, meaning
-//  styling is extremely limited on Windows and Android. For anything beyond a
-//  simple dropdown, a custom implementation is the only reliable option.
-//
-//  FEATURES:
-//    · Full keyboard navigation: Arrow Up/Down, Enter, Escape, Tab
-//    · Screen reader support: role="listbox" + aria-selected + aria-expanded
-//    · Optional search/filter (searchable prop)
-//    · Optional clear button (clearable prop)
-//    · Three sizes: sm, md, lg
-//    · Uses engine CSS variables — matches your theme automatically
-//    · Outputs a hidden <input type="hidden"> so forms still work
-//    · Closes on outside click and on Escape
-//    · Smooth open/close animation via CSS transforms + opacity
-//
-//  USAGE (schema):
-//    {
-//      type: "custom-select",
-//      props: {
-//        name: "country",
-//        label: "Country",
-//        placeholder: "Select a country",
-//        options: [
-//          { value: "us", label: "United States" },
-//          { value: "uk", label: "United Kingdom" },
-//          { value: "ca", label: "Canada", disabled: true },
-//        ],
-//        searchable: true,
-//        clearable: true,
-//        size: "md",
-//      }
-//    }
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, {
@@ -47,20 +10,33 @@ import React, {
 	useEffect,
 	useCallback,
 	useId,
+	useMemo,
 	type CSSProperties,
 	type KeyboardEvent,
 } from "react";
 import type { CustomSelectProps, SelectOption } from "../schema/types";
+import { useCpropClass } from "../hooks/usePropStyles";
+import { usePrimitiveStyles } from "../hooks/usePrimitiveStyles";
+import { useHandler } from "../providers/EngineProvider";
 
-// ── Size config ───────────────────────────────────────────────────────────────
-
-const SIZE_CONFIG = {
-	sm: { fontSize: "0.8125rem", padding: "0.5rem 0.75rem", borderRadius: "6px",  iconSize: 14 },
-	md: { fontSize: "0.9375rem", padding: "0.75rem 1rem",   borderRadius: "8px",  iconSize: 16 },
-	lg: { fontSize: "1.0625rem", padding: "1rem 1.25rem",   borderRadius: "10px", iconSize: 18 },
+type CustomSelectChangeHandler = (value: string, option: SelectOption | null) => void;
+type CustomSelectComponentProps = Omit<CustomSelectProps, "onChange" | "value"> & {
+	value?: string;
+	onChange?: string | CustomSelectChangeHandler;
+	ariaLabel?: string;
+	searchPlaceholder?: string;
+	emptyLabel?: string;
+	engineThemeStyles?: Partial<Record<
+		"label" | "trigger" | "clearButton" | "dropdown" | "list" | "searchInput" | "option" | "emptyMessage",
+		CSSProperties
+	>>;
 };
 
-// ── ChevronIcon ───────────────────────────────────────────────────────────────
+const SIZE_CONFIG = {
+	sm: { fontSize: "0.8125rem", padding: "0.5rem 0.75rem", borderRadius: "6px", iconSize: 14 },
+	md: { fontSize: "0.9375rem", padding: "0.75rem 1rem", borderRadius: "8px", iconSize: 16 },
+	lg: { fontSize: "1.0625rem", padding: "1rem 1.25rem", borderRadius: "10px", iconSize: 18 },
+};
 
 function ChevronIcon({ size, open }: { size: number; open: boolean }) {
 	return (
@@ -75,18 +51,16 @@ function ChevronIcon({ size, open }: { size: number; open: boolean }) {
 			strokeLinejoin="round"
 			aria-hidden="true"
 			style={{
-				flexShrink:  0,
-				transition:  "transform 0.2s ease",
-				transform:   open ? "rotate(180deg)" : "rotate(0deg)",
-				color:       "var(--e-muted, #94a3b8)",
+				flexShrink: 0,
+				transition: "transform 0.2s ease",
+				transform: open ? "rotate(180deg)" : "rotate(0deg)",
+				color: "var(--e-muted, #94a3b8)",
 			}}
 		>
 			<polyline points="6 9 12 15 18 9" />
 		</svg>
 	);
 }
-
-// ── ClearIcon ─────────────────────────────────────────────────────────────────
 
 function ClearIcon({ size }: { size: number }) {
 	return (
@@ -101,12 +75,10 @@ function ClearIcon({ size }: { size: number }) {
 			aria-hidden="true"
 		>
 			<line x1="18" y1="6" x2="6" y2="18" />
-			<line x1="6"  y1="6" x2="18" y2="18" />
+			<line x1="6" y1="6" x2="18" y2="18" />
 		</svg>
 	);
 }
-
-// ── SearchIcon ────────────────────────────────────────────────────────────────
 
 function SearchIcon({ size }: { size: number }) {
 	return (
@@ -128,7 +100,30 @@ function SearchIcon({ size }: { size: number }) {
 	);
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+function firstEnabledIndex(options: SelectOption[]): number {
+	return options.findIndex((option) => !option.disabled);
+}
+
+function filterOptions(options: SelectOption[], searchable: boolean, search: string): SelectOption[] {
+	const query = search.trim().toLowerCase();
+	if (!searchable || !query) return options;
+	return options.filter((option) => option.label.toLowerCase().includes(query));
+}
+
+function nextEnabledIndex(
+	options: SelectOption[],
+	currentIndex: number,
+	direction: 1 | -1,
+): number {
+	if (options.length === 0) return -1;
+	let index = currentIndex;
+	for (let attempts = 0; attempts < options.length; attempts++) {
+		index = Math.max(0, Math.min(options.length - 1, index + direction));
+		if (!options[index]?.disabled) return index;
+		if ((direction === 1 && index === options.length - 1) || (direction === -1 && index === 0)) break;
+	}
+	return currentIndex;
+}
 
 export const CustomSelect = memo(function CustomSelect({
 	name,
@@ -136,47 +131,68 @@ export const CustomSelect = memo(function CustomSelect({
 	options = [],
 	placeholder = "Select an option…",
 	defaultValue,
+	value: controlledValue,
+	onChange,
+	ariaLabel,
+	searchPlaceholder = "Search…",
+	emptyLabel = "{emptyLabel}",
 	searchable = false,
-	clearable  = false,
-	size       = "md",
+	clearable = false,
+	size = "md",
 	id: externalId,
+	point,
 	style,
 	className,
-}: CustomSelectProps) {
-	const generatedId           = useId();
-	const inputId               = externalId ?? `cs-${generatedId}`;
-	const listboxId             = `${inputId}-listbox`;
+	cprop,
+	engineThemeStyles,
+	...props
+}: CustomSelectComponentProps) {
+	const generatedId = useId();
+	const resolvedId = externalId ?? point;
+	const internalBaseId = resolvedId
+		? `${resolvedId}-custom-select`
+		: `cs-${generatedId.replace(/:/g, "")}`;
+	const triggerId = `${internalBaseId}-trigger`;
+	const listboxId = `${internalBaseId}-listbox`;
+	const registeredChangeHandler = useHandler(typeof onChange === "string" ? onChange : "");
+	const changeHandler: CustomSelectChangeHandler | undefined = typeof onChange === "function"
+		? onChange
+		: registeredChangeHandler
+			? (value, option) => registeredChangeHandler(value, option)
+			: undefined;
 
-	const [isOpen, setIsOpen]   = useState(false);
-	const [selected, setSelected] = useState<SelectOption | null>(() =>
-		defaultValue ? (options.find((o) => o.value === defaultValue) ?? null) : null,
+	const [isOpen, setIsOpen] = useState(false);
+	const [internalSelected, setInternalSelected] = useState<SelectOption | null>(() =>
+		defaultValue !== undefined
+			? (options.find((option) => option.value === defaultValue) ?? null)
+			: null,
 	);
-	const [search, setSearch]   = useState("");
+	const selected = controlledValue !== undefined
+		? (options.find((option) => option.value === controlledValue) ?? null)
+		: internalSelected;
+	const [search, setSearch] = useState("");
 	const [focusedIndex, setFocusedIndex] = useState(-1);
 
-	const containerRef  = useRef<HTMLDivElement>(null);
-	const searchRef     = useRef<HTMLInputElement>(null);
-	const listRef       = useRef<HTMLDivElement>(null);
-
+	const containerRef = useRef<HTMLDivElement>(null);
+	const searchRef = useRef<HTMLInputElement>(null);
+	const listRef = useRef<HTMLDivElement>(null);
 	const cfg = SIZE_CONFIG[size] ?? SIZE_CONFIG.md;
 
-	// ── Filtered options ──────────────────────────────────────────────────────
-
-	const filteredOptions = searchable && search
-		? options.filter((o) =>
-				o.label.toLowerCase().includes(search.toLowerCase()),
-		  )
-		: options;
-
-	// ── Open / close ──────────────────────────────────────────────────────────
+	const filteredOptions = useMemo(
+		() => filterOptions(options, searchable, search),
+		[options, searchable, search],
+	);
+	const activeOptionId = isOpen && focusedIndex >= 0 && filteredOptions[focusedIndex]
+		? `${listboxId}-option-${focusedIndex}`
+		: undefined;
 
 	const open = useCallback((): void => {
 		setIsOpen(true);
-		setFocusedIndex(selected ? options.indexOf(selected) : 0);
-		// Focus search input on next tick
-		if (searchable) {
-			setTimeout(() => searchRef.current?.focus(), 50);
-		}
+		const selectedIndex = selected
+			? options.findIndex((option) => option.value === selected.value && !option.disabled)
+			: -1;
+		setFocusedIndex(selectedIndex >= 0 ? selectedIndex : firstEnabledIndex(options));
+		if (searchable) window.setTimeout(() => searchRef.current?.focus(), 0);
 	}, [selected, options, searchable]);
 
 	const close = useCallback((): void => {
@@ -186,194 +202,105 @@ export const CustomSelect = memo(function CustomSelect({
 	}, []);
 
 	const toggle = useCallback((): void => {
-		isOpen ? close() : open();
+		if (isOpen) close();
+		else open();
 	}, [isOpen, open, close]);
-
-	// ── Select an option ──────────────────────────────────────────────────────
 
 	const selectOption = useCallback((option: SelectOption): void => {
 		if (option.disabled) return;
-		setSelected(option);
+		setInternalSelected(option);
+		changeHandler?.(option.value, option);
 		close();
-	}, [close]);
+	}, [changeHandler, close]);
 
-	const clearSelection = useCallback((e: React.MouseEvent): void => {
-		e.stopPropagation();
-		setSelected(null);
+	const clearSelection = useCallback((event: React.MouseEvent<HTMLButtonElement>): void => {
+		event.preventDefault();
+		setInternalSelected(null);
+		changeHandler?.("", null);
 		close();
-	}, [close]);
+	}, [changeHandler, close]);
 
-	// ── Keyboard navigation ───────────────────────────────────────────────────
+	const moveFocus = useCallback((direction: 1 | -1): void => {
+		setFocusedIndex((previousIndex) => {
+			if (previousIndex < 0) return firstEnabledIndex(filteredOptions);
+			return nextEnabledIndex(filteredOptions, previousIndex, direction);
+		});
+	}, [filteredOptions]);
 
-	const handleKeyDown = useCallback((e: KeyboardEvent<HTMLButtonElement>): void => {
-		switch (e.key) {
-			case "Enter":
-			case " ":
-				e.preventDefault();
-				toggle();
-				break;
-			case "ArrowDown":
-				e.preventDefault();
-				if (!isOpen) { open(); return; }
-				setFocusedIndex((prev) => Math.min(prev + 1, filteredOptions.length - 1));
-				break;
-			case "ArrowUp":
-				e.preventDefault();
-				setFocusedIndex((prev) => Math.max(prev - 1, 0));
-				break;
-			case "Escape":
-				close();
-				break;
-			case "Tab":
-				close();
-				break;
+	const activateFocused = useCallback((): void => {
+		if (focusedIndex >= 0 && filteredOptions[focusedIndex]) {
+			selectOption(filteredOptions[focusedIndex]);
 		}
-	}, [toggle, isOpen, open, close, filteredOptions.length]);
+	}, [filteredOptions, focusedIndex, selectOption]);
 
-	const handleListKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>): void => {
-		switch (e.key) {
-			case "ArrowDown":
-				e.preventDefault();
-				setFocusedIndex((prev) => Math.min(prev + 1, filteredOptions.length - 1));
-				break;
-			case "ArrowUp":
-				e.preventDefault();
-				setFocusedIndex((prev) => Math.max(prev - 1, 0));
-				break;
-			case "Enter":
-				e.preventDefault();
-				if (focusedIndex >= 0 && filteredOptions[focusedIndex]) {
-					selectOption(filteredOptions[focusedIndex]);
-				}
-				break;
-			case "Escape":
-				close();
-				break;
+	const handleNavigationKey = useCallback((key: string): boolean => {
+		if (key === "ArrowDown") {
+			moveFocus(1);
+			return true;
 		}
-	}, [filteredOptions, focusedIndex, selectOption, close]);
+		if (key === "ArrowUp") {
+			moveFocus(-1);
+			return true;
+		}
+		if (key === "Enter") {
+			activateFocused();
+			return true;
+		}
+		if (key === "Escape") {
+			close();
+			return true;
+		}
+		return false;
+	}, [moveFocus, activateFocused, close]);
 
-	// ── Scroll focused item into view ─────────────────────────────────────────
+	const handleTriggerKeyDown = useCallback((event: KeyboardEvent<HTMLButtonElement>): void => {
+		if (event.key === "Enter" || event.key === " ") {
+			event.preventDefault();
+			if (isOpen) activateFocused();
+			else open();
+			return;
+		}
+		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			event.preventDefault();
+			if (!isOpen) open();
+			else moveFocus(event.key === "ArrowDown" ? 1 : -1);
+			return;
+		}
+		if (event.key === "Escape") close();
+		if (event.key === "Tab") close();
+	}, [isOpen, activateFocused, open, close, moveFocus]);
+
+	const handleListKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>): void => {
+		if (handleNavigationKey(event.key)) event.preventDefault();
+	}, [handleNavigationKey]);
+
+	const handleSearchKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>): void => {
+		if (handleNavigationKey(event.key)) event.preventDefault();
+	}, [handleNavigationKey]);
 
 	useEffect(() => {
 		if (!isOpen || focusedIndex < 0 || !listRef.current) return;
-		const items = listRef.current.querySelectorAll<HTMLDivElement>("[data-option]");
+		const items = listRef.current.querySelectorAll<HTMLElement>("[data-option]");
 		items[focusedIndex]?.scrollIntoView({ block: "nearest" });
 	}, [focusedIndex, isOpen]);
 
-	// ── Close on outside click ────────────────────────────────────────────────
-
 	useEffect(() => {
 		if (!isOpen) return;
-		const handler = (e: MouseEvent): void => {
-			if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-				close();
-			}
+		const handleOutsideClick = (event: MouseEvent): void => {
+			if (containerRef.current && !containerRef.current.contains(event.target as Node)) close();
 		};
-		document.addEventListener("mousedown", handler);
-		return () => document.removeEventListener("mousedown", handler);
+		document.addEventListener("mousedown", handleOutsideClick);
+		return () => document.removeEventListener("mousedown", handleOutsideClick);
 	}, [isOpen, close]);
 
-	// ── Styles ────────────────────────────────────────────────────────────────
-
-	const containerStyle: CSSProperties = {
-		position:  "relative",
-		width:     "100%",
-		...style,
-	};
-
-	const labelStyle: CSSProperties = {
-		display:      "block",
-		marginBottom: "0.4rem",
-		fontSize:     "0.8125rem",
-		fontWeight:   500,
-		color:        "var(--e-text-color, #30475f)",
-		userSelect:   "none",
-	};
-
-	const triggerStyle: CSSProperties = {
-		width:           "100%",
-		padding:         cfg.padding,
-		background:      "var(--e-card-bg, #ffffff)",
-		border:          isOpen
-			? "1.5px solid var(--e-accent, #4f46e5)"
-			: "1.5px solid var(--e-divider, rgba(7,17,31,0.16))",
-		borderRadius:    cfg.borderRadius,
-		textAlign:       "left",
-		display:         "flex",
-		justifyContent:  "space-between",
-		alignItems:      "center",
-		gap:             "0.5rem",
-		cursor:          "pointer",
-		fontSize:        cfg.fontSize,
-		color:           selected ? "var(--e-heading-color, #07111f)" : "var(--e-muted, #94a3b8)",
-		boxShadow:       isOpen
-			? "0 0 0 3px var(--e-accent-soft, rgba(79,70,229,0.15))"
-			: "0 1px 3px rgba(0,0,0,.04)",
-		transition:      "border-color 0.15s ease, box-shadow 0.15s ease",
-		userSelect:      "none",
-		outline:         "none",
-		fontFamily:      "inherit",
-	};
-
-	const dropdownStyle: CSSProperties = {
-		position:     "absolute",
-		top:          "calc(100% + 6px)",
-		left:         0,
-		right:        0,
-		background:   "var(--e-card-bg, #ffffff)",
-		border:       "1.5px solid var(--e-divider, rgba(7,17,31,0.16))",
-		borderRadius: cfg.borderRadius,
-		boxShadow:    "0 12px 40px rgba(7,17,31,0.12), 0 2px 8px rgba(7,17,31,0.06)",
-		zIndex:       200,
-		overflow:     "hidden",
-		transformOrigin: "top center",
-		animation:    "e-select-open 0.15s ease forwards",
-	};
-
-	const listStyle: CSSProperties = {
-		maxHeight:  "240px",
-		overflowY:  "auto",
-		padding:    "0.3rem",
-	};
-
-	const optionStyle = (option: SelectOption, index: number): CSSProperties => {
-		const isSelected = selected?.value === option.value;
-		const isFocused  = index === focusedIndex;
-		return {
-			padding:      "0.625rem 0.75rem",
-			borderRadius: "6px",
-			cursor:       option.disabled ? "not-allowed" : "pointer",
-			fontSize:     cfg.fontSize,
-			color:        option.disabled
-				? "var(--e-muted, #94a3b8)"
-				: isSelected
-				? "var(--e-accent, #4f46e5)"
-				: "var(--e-text-color, #30475f)",
-			background:   isSelected
-				? "var(--e-accent-soft, rgba(79,70,229,0.08))"
-				: isFocused
-				? "var(--e-hover-bg, rgba(7,17,31,0.04))"
-				: "transparent",
-			fontWeight:   isSelected ? 500 : 400,
-			transition:   "background 0.1s ease, color 0.1s ease",
-			display:      "flex",
-			alignItems:   "center",
-			gap:          "0.5rem",
-			userSelect:   "none",
-			opacity:      option.disabled ? 0.5 : 1,
-		};
-	};
-
-	// Inject animation keyframes once
 	useEffect(() => {
-		if (typeof document === "undefined") return;
-		if (document.getElementById("__e_select_css__")) return;
-		const s = document.createElement("style");
-		s.id = "__e_select_css__";
-		s.textContent = `
+		if (typeof document === "undefined" || document.getElementById("__e_select_css__")) return;
+		const styleElement = document.createElement("style");
+		styleElement.id = "__e_select_css__";
+		styleElement.textContent = `
 			@keyframes e-select-open {
 				from { opacity: 0; transform: scaleY(0.92) translateY(-4px); }
-				to   { opacity: 1; transform: scaleY(1) translateY(0); }
+				to { opacity: 1; transform: scaleY(1) translateY(0); }
 			}
 			.e-select-scroll::-webkit-scrollbar { width: 4px; }
 			.e-select-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -381,97 +308,188 @@ export const CustomSelect = memo(function CustomSelect({
 				background: var(--e-divider, rgba(7,17,31,0.16));
 				border-radius: 4px;
 			}
+			@media (prefers-reduced-motion: reduce) {
+				.e-select-dropdown { animation: none !important; }
+			}
 		`.trim();
-		document.head.appendChild(s);
+		document.head.appendChild(styleElement);
 	}, []);
 
+	const containerStyle = usePrimitiveStyles(props as any, {
+		defaults: {
+			position: "relative",
+			width: "100%",
+		},
+		style,
+	});
+	const stateClass = useCpropClass(cprop);
+	const mergedClass = [className, stateClass].filter(Boolean).join(" ") || undefined;
+
+	const labelStyle: CSSProperties = {
+		display: "block",
+		marginBottom: "0.4rem",
+		fontSize: "0.8125rem",
+		fontWeight: 500,
+		color: "var(--e-text-color, #30475f)",
+		userSelect: "none",
+		...engineThemeStyles?.label,
+	};
+
+	const triggerStyle: CSSProperties = {
+		width: "100%",
+		padding: cfg.padding,
+		background: "var(--e-card-bg, #ffffff)",
+		border: isOpen
+			? "1.5px solid var(--e-accent, #4f46e5)"
+			: "1.5px solid var(--e-divider, rgba(7,17,31,0.16))",
+		borderRadius: cfg.borderRadius,
+		textAlign: "left",
+		display: "flex",
+		justifyContent: "space-between",
+		alignItems: "center",
+		gap: "0.5rem",
+		cursor: "pointer",
+		fontSize: cfg.fontSize,
+		color: selected ? "var(--e-heading-color, #07111f)" : "var(--e-muted, #94a3b8)",
+		boxShadow: isOpen
+			? "0 0 0 3px var(--e-accent-soft, rgba(79,70,229,0.15))"
+			: "0 1px 3px rgba(0,0,0,.04)",
+		transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+		userSelect: "none",
+		outline: "none",
+		fontFamily: "inherit",
+		...engineThemeStyles?.trigger,
+	};
+
+	const clearButtonStyle: CSSProperties = {
+		border: "1.5px solid var(--e-divider, rgba(7,17,31,0.16))",
+		borderRadius: cfg.borderRadius,
+		background: "var(--e-card-bg, #ffffff)",
+		color: "var(--e-muted, #94a3b8)",
+		cursor: "pointer",
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "center",
+		padding: "0 0.7rem",
+		fontFamily: "inherit",
+		...engineThemeStyles?.clearButton,
+	};
+
+	const dropdownStyle: CSSProperties = {
+		position: "absolute",
+		top: "calc(100% + 6px)",
+		left: 0,
+		right: 0,
+		background: "var(--e-card-bg, #ffffff)",
+		border: "1.5px solid var(--e-divider, rgba(7,17,31,0.16))",
+		borderRadius: cfg.borderRadius,
+		boxShadow: "0 12px 40px rgba(7,17,31,0.12), 0 2px 8px rgba(7,17,31,0.06)",
+		zIndex: 200,
+		overflow: "hidden",
+		transformOrigin: "top center",
+		animation: "e-select-open 0.15s ease forwards",
+		...engineThemeStyles?.dropdown,
+	};
+
+	const listStyle: CSSProperties = {
+		maxHeight: "240px",
+		overflowY: "auto",
+		padding: "0.3rem",
+		...engineThemeStyles?.list,
+	};
+
+	const optionStyle = (option: SelectOption, index: number): CSSProperties => {
+		const isSelected = selected?.value === option.value;
+		const isFocused = index === focusedIndex;
+		return {
+			padding: "0.625rem 0.75rem",
+			borderRadius: "6px",
+			cursor: option.disabled ? "not-allowed" : "pointer",
+			fontSize: cfg.fontSize,
+			color: option.disabled
+				? "var(--e-muted, #94a3b8)"
+				: isSelected
+					? "var(--e-accent, #4f46e5)"
+					: "var(--e-text-color, #30475f)",
+			background: isSelected
+				? "var(--e-accent-soft, rgba(79,70,229,0.08))"
+				: isFocused
+					? "var(--e-hover-bg, rgba(7,17,31,0.04))"
+					: "transparent",
+			fontWeight: isSelected ? 500 : 400,
+			transition: "background 0.1s ease, color 0.1s ease",
+			display: "flex",
+			alignItems: "center",
+			gap: "0.5rem",
+			userSelect: "none",
+			opacity: option.disabled ? 0.5 : 1,
+			...engineThemeStyles?.option,
+		};
+	};
+
 	return (
-		<div
-			ref={containerRef}
-			className={className}
-			style={containerStyle}
-		>
-			{label && (
-				<label htmlFor={inputId} style={labelStyle}>
-					{label}
-				</label>
-			)}
+		<div ref={containerRef} id={resolvedId} className={mergedClass} style={containerStyle}>
+			{label && <label htmlFor={triggerId} style={labelStyle}>{label}</label>}
 
-			{/* Trigger button */}
-			<button
-				id={inputId}
-				type="button"
-				role="combobox"
-				aria-haspopup="listbox"
-				aria-expanded={isOpen}
-				aria-controls={listboxId}
-				aria-label={label ?? placeholder}
-				onClick={toggle}
-				onKeyDown={handleKeyDown}
-				style={triggerStyle}
+			<div
+				style={{
+					display: "grid",
+					gridTemplateColumns: clearable && selected ? "minmax(0, 1fr) auto" : "minmax(0, 1fr)",
+					gap: "0.375rem",
+				}}
 			>
-				<span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-					{selected ? selected.label : placeholder}
-				</span>
-
-				<span style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
-					{clearable && selected && (
-						<span
-							role="button"
-							aria-label="Clear selection"
-							onClick={clearSelection}
-							style={{
-								display:     "flex",
-								alignItems:  "center",
-								padding:     "2px",
-								borderRadius: "4px",
-								color:        "var(--e-muted, #94a3b8)",
-								transition:   "color 0.15s",
-							}}
-							onMouseEnter={(e) => {
-								(e.currentTarget as HTMLElement).style.color = "var(--e-heading-color, #07111f)";
-							}}
-							onMouseLeave={(e) => {
-								(e.currentTarget as HTMLElement).style.color = "var(--e-muted, #94a3b8)";
-							}}
-						>
-							<ClearIcon size={cfg.iconSize - 2} />
-						</span>
-					)}
+				<button
+					id={triggerId}
+					type="button"
+					role="combobox"
+					aria-haspopup="listbox"
+					aria-expanded={isOpen}
+					aria-controls={listboxId}
+					aria-activedescendant={activeOptionId}
+					aria-label={ariaLabel ?? label ?? placeholder}
+					onClick={toggle}
+					onKeyDown={handleTriggerKeyDown}
+					style={triggerStyle}
+				>
+					<span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+						{selected ? selected.label : placeholder}
+					</span>
 					<ChevronIcon size={cfg.iconSize} open={isOpen} />
-				</span>
-			</button>
+				</button>
 
-			{/* Dropdown */}
+				{clearable && selected && (
+					<button
+						type="button"
+						aria-label="Clear selection"
+						onClick={clearSelection}
+						style={clearButtonStyle}
+					>
+						<ClearIcon size={cfg.iconSize - 2} />
+					</button>
+				)}
+			</div>
+
 			{isOpen && (
-				<div style={dropdownStyle} aria-hidden="false">
+				<div className="e-select-dropdown" style={dropdownStyle}>
 					{searchable && (
-						<div
-							style={{
-								padding:      "0.5rem 0.5rem 0.25rem",
-								borderBottom: "1px solid var(--e-divider, rgba(7,17,31,0.08))",
-							}}
-						>
+						<div style={{ padding: "0.5rem 0.5rem 0.25rem", borderBottom: "1px solid var(--e-divider, rgba(7,17,31,0.08))" }}>
 							<div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--e-hover-bg, rgba(7,17,31,0.03))", borderRadius: "6px", padding: "0.375rem 0.625rem" }}>
 								<SearchIcon size={cfg.iconSize - 2} />
 								<input
 									ref={searchRef}
 									type="text"
-									placeholder="Search…"
+									placeholder={searchPlaceholder}
 									value={search}
-									onChange={(e) => {
-										setSearch(e.target.value);
-										setFocusedIndex(0);
+									aria-label={ariaLabel ? ariaLabel + " search" : "Search " + (label ?? name)}
+									aria-controls={listboxId}
+									aria-activedescendant={activeOptionId}
+									onChange={(event) => {
+										const nextSearch = event.target.value;
+										setSearch(nextSearch);
+										setFocusedIndex(firstEnabledIndex(filterOptions(options, searchable, nextSearch)));
 									}}
-									style={{
-										border:      "none",
-										outline:     "none",
-										background:  "transparent",
-										fontSize:    cfg.fontSize,
-										color:       "var(--e-text-color, #30475f)",
-										width:       "100%",
-										fontFamily:  "inherit",
-									}}
+									onKeyDown={handleSearchKeyDown}
+									style={{ border: "none", outline: "none", background: "transparent", fontSize: cfg.fontSize, color: "var(--e-text-color, #30475f)", width: "100%", fontFamily: "inherit", ...engineThemeStyles?.searchInput }}
 								/>
 							</div>
 						</div>
@@ -482,57 +500,45 @@ export const CustomSelect = memo(function CustomSelect({
 						ref={listRef}
 						role="listbox"
 						aria-label={label ?? placeholder}
+						aria-activedescendant={activeOptionId}
 						className="e-select-scroll"
 						style={listStyle}
 						onKeyDown={handleListKeyDown}
 						tabIndex={-1}
 					>
 						{filteredOptions.length === 0 ? (
-							<div
-								style={{
-									padding:    "1rem",
-									textAlign:  "center",
-									color:      "var(--e-muted, #94a3b8)",
-									fontSize:   cfg.fontSize,
-									userSelect: "none",
-								}}
-							>
+							<div style={{ padding: "1rem", textAlign: "center", color: "var(--e-muted, #94a3b8)", fontSize: cfg.fontSize, userSelect: "none", ...engineThemeStyles?.emptyMessage }}>
 								No options found
 							</div>
-						) : (
-							filteredOptions.map((option, index) => (
-								<div
-									key={option.value}
-									data-option
-									role="option"
-									aria-selected={selected?.value === option.value}
-									aria-disabled={option.disabled}
-									onClick={() => selectOption(option)}
-									onMouseEnter={() => setFocusedIndex(index)}
-									style={optionStyle(option, index)}
-								>
-									{selected?.value === option.value && (
-										<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-											stroke="currentColor" strokeWidth="3"
-											strokeLinecap="round" strokeLinejoin="round"
-											aria-hidden="true"
-										>
-											<polyline points="20 6 9 17 4 12" />
-										</svg>
-									)}
-									{option.label}
-								</div>
-							))
-						)}
+						) : filteredOptions.map((option, index) => (
+							<div
+								id={`${listboxId}-option-${index}`}
+								key={`${option.value}:${index}`}
+								data-option
+								role="option"
+								aria-selected={selected?.value === option.value}
+								aria-disabled={option.disabled}
+								onClick={() => selectOption(option)}
+								onMouseEnter={() => !option.disabled && setFocusedIndex(index)}
+								style={optionStyle(option, index)}
+							>
+								{selected?.value === option.value && (
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+										<polyline points="20 6 9 17 4 12" />
+									</svg>
+								)}
+								{option.label}
+							</div>
+						))}
 					</div>
 				</div>
 			)}
 
-			{/* Hidden form input */}
 			<input
 				type="hidden"
 				name={name}
 				value={selected?.value ?? ""}
+				data-engine-bind={name}
 			/>
 		</div>
 	);

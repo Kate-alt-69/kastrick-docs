@@ -1,8 +1,11 @@
 /**
  * Next.js Engine — EngineAPIResolver
- * Declarative runtime networking orchestration subsystem implementing native fetch pipelines,
- * multi-tier cascade override evaluations, and Zero-Fingerprint Anti-Fingerprinting protocols.
+ * Declarative fetch orchestration with config cascading, native auth support,
+ * and APIStatic endpoint dispatch.
  */
+
+import type { EngineAPIStaticEndpoint } from "./APIStatic";
+export type { EngineAPIStaticEndpoint } from "./APIStatic";
 
 export interface EngineAPIAuthConfig {
 	type: "pnp" | "ak" | "hmac" | "bearer" | "jwt" | "basic" | "none";
@@ -17,7 +20,7 @@ export interface EngineAPIAuthConfig {
 }
 
 export interface EngineAPIConfig {
-	endpoint?: string;
+	endpoint?: string | EngineAPIStaticEndpoint;
 	method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | string;
 	cache?: RequestCache;
 	auth?: EngineAPIAuthConfig;
@@ -25,22 +28,146 @@ export interface EngineAPIConfig {
 	versionMacros?: Record<string, string>;
 }
 
-/**
- * Non-generic target deep merge utility to resolve indexing constraints
- */
-function deepMerge(target: any, ...sources: any[]): any {
-	const result = { ...target };
+export type EngineAPIFormData = Record<string, unknown> | FormData;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
+}
+
+function isStaticEndpoint(value: EngineAPIConfig["endpoint"]): value is EngineAPIStaticEndpoint {
+	return isPlainObject(value) && typeof value.static === "string";
+}
+
+function deepMerge(target: Record<string, unknown>, ...sources: Array<Record<string, unknown> | undefined>): Record<string, unknown> {
+	const result: Record<string, unknown> = { ...target };
 	for (const source of sources) {
 		if (!source) continue;
-		for (const key of Object.keys(source)) {
-			if (source[key] && typeof source[key] === "object" && !Array.isArray(source[key]) && key in result) {
-				result[key] = deepMerge(result[key], source[key]);
+		for (const [key, value] of Object.entries(source)) {
+			if (key === "endpoint") {
+				result[key] = value;
+				continue;
+			}
+
+			const existingValue = result[key];
+			if (isPlainObject(value) && isPlainObject(existingValue)) {
+				result[key] = deepMerge(existingValue, value);
 			} else {
-				result[key] = source[key];
+				result[key] = value;
 			}
 		}
 	}
 	return result;
+}
+
+function isNativeFormData(value: unknown): value is FormData {
+	return typeof FormData !== "undefined" && value instanceof FormData;
+}
+
+function isBlobLike(value: unknown): value is Blob {
+	return typeof Blob !== "undefined" && value instanceof Blob;
+}
+
+function containsBinaryValue(value: unknown): boolean {
+	if (isBlobLike(value)) return true;
+	if (typeof FileList !== "undefined" && value instanceof FileList) return value.length > 0;
+	if (Array.isArray(value)) return value.some(containsBinaryValue);
+	return false;
+}
+
+function appendFormDataValue(target: FormData, key: string, value: unknown): void {
+	if (value === undefined) return;
+	if (value === null) {
+		target.append(key, "");
+		return;
+	}
+	if (typeof FileList !== "undefined" && value instanceof FileList) {
+		for (const file of Array.from(value)) target.append(key, file);
+		return;
+	}
+	if (Array.isArray(value)) {
+		for (const item of value) appendFormDataValue(target, key, item);
+		return;
+	}
+	if (isBlobLike(value)) {
+		target.append(key, value);
+		return;
+	}
+	if (typeof value === "object") {
+		target.append(key, JSON.stringify(value));
+		return;
+	}
+	target.append(key, String(value));
+}
+
+function buildRequestBody(input: unknown): BodyInit {
+	if (isNativeFormData(input)) return input;
+	if (!isPlainObject(input)) {
+		const serialized = JSON.stringify(input);
+		if (serialized === undefined) {
+			throw new Error("[EngineAPIResolver] Request input cannot be serialized as JSON.");
+		}
+		return serialized;
+	}
+	const hasBinaryPayload = Object.values(input).some(containsBinaryValue);
+	if (!hasBinaryPayload) return JSON.stringify(input);
+	if (typeof FormData === "undefined") {
+		throw new Error("[EngineAPIResolver] Binary form data requires the FormData Web API.");
+	}
+	const nativeFormData = new FormData();
+	for (const [key, value] of Object.entries(input)) appendFormDataValue(nativeFormData, key, value);
+	return nativeFormData;
+}
+
+function encodeBytesBase64(bytes: Uint8Array): string {
+	let binary = "";
+	for (const byte of bytes) binary += String.fromCharCode(byte);
+	return btoa(binary);
+}
+
+function encodeBase64Utf8(value: string): string {
+	return encodeBytesBase64(new TextEncoder().encode(value));
+}
+
+function deleteHeaderCaseInsensitive(headers: Record<string, string>, target: string): void {
+	const normalizedTarget = target.toLowerCase();
+	for (const key of Object.keys(headers)) {
+		if (key.toLowerCase() === normalizedTarget) delete headers[key];
+	}
+}
+
+function decodeBase64(value: string): ArrayBuffer {
+	const binary = atob(value);
+	const buffer = new ArrayBuffer(binary.length);
+	const bytes = new Uint8Array(buffer);
+	for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+	return buffer;
+}
+
+function requireAuthString(
+	authType: EngineAPIAuthConfig["type"],
+	field: string,
+	value: unknown,
+): string {
+	if (typeof value !== "string" || value.trim().length === 0) {
+		throw new Error(`[EngineAPIResolver] auth.type "${authType}" requires a non-empty ${field}.`);
+	}
+	return value;
+}
+
+function requirePrivateKey(privateKey: EngineAPIAuthConfig["privateKey"]): CryptoKey | JsonWebKey | string {
+	if (privateKey === undefined || privateKey === null) {
+		throw new Error('[EngineAPIResolver] auth.type "pnp" requires a privateKey.');
+	}
+	if (typeof privateKey === "string" && privateKey.trim().length === 0) {
+		throw new Error('[EngineAPIResolver] auth.type "pnp" requires a non-empty privateKey.');
+	}
+	return privateKey;
+}
+
+function isSigningAuth(type: EngineAPIAuthConfig["type"]): type is "hmac" | "pnp" {
+	return type === "hmac" || type === "pnp";
 }
 
 export class EngineAPIResolver {
@@ -53,169 +180,181 @@ export class EngineAPIResolver {
 	async resolveRequest(params: {
 		pageOverrides?: EngineAPIConfig;
 		nodeOverrides?: EngineAPIConfig;
-		formData?: Record<string, any>;
-	}): Promise<Response> {
-		const { pageOverrides, nodeOverrides, formData } = params;
+		formData?: EngineAPIFormData;
+		/** Input passed to APIStatic or serialized for an HTTP body. `formData` is the compatibility fallback. */
+		input?: unknown;
+	} = {}): Promise<Response> {
+		const { pageOverrides, nodeOverrides, formData, input } = params;
+		const config = deepMerge(
+			{},
+			this.globalConfig as Record<string, unknown>,
+			pageOverrides as Record<string, unknown> | undefined,
+			nodeOverrides as Record<string, unknown> | undefined,
+		) as EngineAPIConfig;
 
-		// 1. Structural priority layout execution
-		const config: EngineAPIConfig = deepMerge({}, this.globalConfig, pageOverrides || {}, nodeOverrides || {});
+		if (isStaticEndpoint(config.endpoint)) {
+			const { getDefaultAPIStatic } = await import("./APIStatic");
+			return getDefaultAPIStatic().resolveRequest(config.endpoint.static, {
+				operation: config.endpoint.operation,
+				input: input !== undefined ? input : formData,
+			});
+		}
 
 		const method = (config.method || "GET").toUpperCase();
-		let url = config.endpoint || "";
+		let url = typeof config.endpoint === "string" ? config.endpoint : "";
 		const cache = config.cache || "default";
 
-		// 2. URL Macro Adjustments
 		if (config.versionMacros) {
 			for (const [macro, replacement] of Object.entries(config.versionMacros)) {
-				const macroPlaceholder = `&${macro}&`;
-				if (url.includes(macroPlaceholder)) {
-					url = url.split(macroPlaceholder).join(replacement);
-				}
+				url = url.split(`&${macro}&`).join(replacement);
 			}
 		}
 
-		// 3. Form Data Payloads
-		let body: string | undefined = undefined;
-		if (["POST", "PUT", "PATCH"].includes(method) && formData) {
-			body = JSON.stringify(formData);
+		if (!url.trim()) throw new Error("[EngineAPIResolver] Cannot resolve a request without an endpoint.");
+
+		let body: BodyInit | undefined;
+		const requestInput = input !== undefined ? input : formData;
+		if (!["GET", "HEAD"].includes(method) && requestInput !== undefined) {
+			body = buildRequestBody(requestInput);
 		}
 
-		// 4. Headers Build Array
 		const headers: Record<string, string> = {
-			...(body ? { "Content-Type": "application/json" } : {}),
+			...(typeof body === "string" ? { "Content-Type": "application/json" } : {}),
 			...(config.headers || {}),
 		};
+		if (isNativeFormData(body)) deleteHeaderCaseInsensitive(headers, "Content-Type");
 
-		// 5. Native Auth Logic Routing
 		const auth = config.auth || { type: "none" };
-		const timestamp = Math.floor(Date.now() / 1000).toString();
+		if (isNativeFormData(body) && isSigningAuth(auth.type)) {
+			throw new Error(
+				`[EngineAPIResolver] auth.type "${auth.type}" cannot sign multipart FormData because the browser-generated request body is not deterministically available before fetch(). Use a JSON body or a non-body-signing auth mode.`,
+			);
+		}
+
+		const timestamp = Date.now().toString();
+		const signatureBody = typeof body === "string" ? body : "";
 
 		switch (auth.type) {
 			case "none":
 				break;
-
 			case "ak": {
-				const destHeader = auth.destinationHeader || "X-Key";
-				if (auth.key) headers[destHeader] = auth.key;
+				const key = requireAuthString("ak", "key", auth.key);
+				const destinationHeader = auth.destinationHeader || "X-Key";
+				headers[destinationHeader] = key;
 				break;
 			}
-
 			case "bearer":
 			case "jwt": {
-				if (auth.token) headers["Authorization"] = `Bearer ${auth.token}`;
+				const token = requireAuthString(auth.type, "token", auth.token);
+				headers.Authorization = `Bearer ${token}`;
 				break;
 			}
-
 			case "basic": {
-				if (auth.username && auth.password) {
-					const credentials = btoa(`${auth.username}:${auth.password}`);
-					headers["Authorization"] = `Basic ${credentials}`;
-				}
+				const username = requireAuthString("basic", "username", auth.username);
+				const password = requireAuthString("basic", "password", auth.password);
+				headers.Authorization = `Basic ${encodeBase64Utf8(`${username}:${password}`)}`;
 				break;
 			}
-
 			case "hmac": {
-				if (auth.key && auth.secret) {
-					const algo = auth.algorithm === "SHA-512" ? "SHA-512" : "SHA-256";
-					const signaturePayload = `${method}\n${url}\n${timestamp}\n${body || ""}`;
-					
-					headers["X-Signature"] = await this.cryptoHMAC(signaturePayload, auth.secret, algo);
-					headers["X-Key"] = auth.key;
-					headers["X-Timestamp"] = timestamp;
-				}
+				const secret = requireAuthString("hmac", "secret", auth.secret);
+				const algorithm = String(auth.algorithm).toUpperCase() === "SHA-512" ? "SHA-512" : "SHA-256";
+				const signaturePayload = `${method}\n${url}\n${timestamp}\n${signatureBody}`;
+				headers["X-Signature"] = await this.cryptoHMAC(signaturePayload, secret, algorithm);
+				headers["X-Timestamp"] = timestamp;
+				if (auth.key) headers["X-Key"] = auth.key;
 				break;
 			}
-
 			case "pnp": {
-				if (auth.key && auth.privateKey) {
-					const signaturePayload = `${url}\n${timestamp}\n${body || ""}`;
-					const signingKey = await this.resolvePrivateKey(auth.privateKey, auth.algorithm);
-					if (!signingKey) break;
-					
-					headers["X-Signature"] = await this.cryptoAsymmetricSign(signaturePayload, signingKey);
-					headers["X-Key"] = auth.key;
-					headers["X-Timestamp"] = timestamp;
-				}
+				const privateKey = requirePrivateKey(auth.privateKey);
+				const signaturePayload = `${url}\n${timestamp}\n${signatureBody}`;
+				const signingKey = await this.resolvePrivateKey(privateKey, auth.algorithm);
+				headers["X-Signature"] = await this.cryptoAsymmetricSign(signaturePayload, signingKey);
+				headers["X-Timestamp"] = timestamp;
+				if (auth.key) headers["X-Key"] = auth.key;
 				break;
 			}
 		}
 
-		// 6. Zero-Fingerprint Sanitation Processing
-		const fingerprintPatterns = [/x-engine-/i, /x-powered-by/i, /x-framework/i];
+		const fingerprintPatterns = [/^x-engine-/i, /^x-powered-by$/i, /^x-framework$/i];
 		for (const key of Object.keys(headers)) {
-			if (fingerprintPatterns.some((pattern) => pattern.test(key))) {
-				if (process.env.NODE_ENV === "development") {
-						// Anti-fingerprinting blocked a disallowed header injection
-						void key;
-					}
-				delete headers[key];
-			}
+			if (fingerprintPatterns.some((pattern) => pattern.test(key))) delete headers[key];
 		}
 
-		const fetchOptions: RequestInit = {
-			method,
-			headers,
-			cache,
-		};
-
-		if (body) {
-			fetchOptions.body = body;
-		}
-
+		const fetchOptions: RequestInit = { method, headers, cache };
+		if (body !== undefined) fetchOptions.body = body;
 		return fetch(url, fetchOptions);
 	}
 
 	private async cryptoHMAC(payload: string, secret: string, algorithm: "SHA-256" | "SHA-512"): Promise<string> {
 		const encoder = new TextEncoder();
-		const keyData = encoder.encode(secret);
-		const payloadData = encoder.encode(payload);
-
 		const importedKey = await crypto.subtle.importKey(
 			"raw",
-			keyData,
+			encoder.encode(secret),
 			{ name: "HMAC", hash: algorithm },
 			false,
-			["sign"]
+			["sign"],
 		);
-
-		const signatureBuffer = await crypto.subtle.sign("HMAC", importedKey, payloadData);
+		const signatureBuffer = await crypto.subtle.sign("HMAC", importedKey, encoder.encode(payload));
 		return Array.from(new Uint8Array(signatureBuffer))
-			.map((b) => b.toString(16).padStart(2, "0"))
+			.map((byte) => byte.toString(16).padStart(2, "0"))
 			.join("");
 	}
 
-	private async resolvePrivateKey(privateKey: CryptoKey | JsonWebKey | string, algorithm?: string): Promise<CryptoKey | undefined> {
-		if (typeof CryptoKey !== "undefined" && privateKey instanceof CryptoKey) {
-			return privateKey;
+	private async resolvePrivateKey(
+		privateKey: CryptoKey | JsonWebKey | string,
+		algorithm?: string,
+	): Promise<CryptoKey> {
+		if (typeof CryptoKey !== "undefined" && privateKey instanceof CryptoKey) return privateKey;
+
+		const normalizedAlgorithm: AlgorithmIdentifier | RsaHashedImportParams =
+			String(algorithm).toUpperCase() === "RS256"
+				? { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }
+				: { name: "Ed25519" };
+
+		if (typeof privateKey === "string") {
+			const trimmed = privateKey.trim();
+			if (trimmed.startsWith("-----BEGIN")) {
+				if (!trimmed.includes("-----BEGIN PRIVATE KEY-----") || !trimmed.includes("-----END PRIVATE KEY-----")) {
+					throw new Error("[EngineAPIResolver] PNP PEM privateKey must use PKCS#8 PRIVATE KEY markers.");
+				}
+				try {
+					const encoded = trimmed
+						.replace(/-----BEGIN PRIVATE KEY-----/g, "")
+						.replace(/-----END PRIVATE KEY-----/g, "")
+						.replace(/\s+/g, "");
+					const pkcs8 = decodeBase64(encoded);
+					return await crypto.subtle.importKey("pkcs8", pkcs8, normalizedAlgorithm, false, ["sign"]);
+				} catch {
+					throw new Error("[EngineAPIResolver] Failed to import PNP PKCS#8 privateKey.");
+				}
+			}
+
+			let jwk: JsonWebKey;
+			try {
+				jwk = JSON.parse(trimmed) as JsonWebKey;
+			} catch {
+				throw new Error("[EngineAPIResolver] PNP string privateKey must be PKCS#8 PEM or valid JWK JSON.");
+			}
+			try {
+				return await (crypto.subtle.importKey as any)("jwk", jwk, normalizedAlgorithm, false, ["sign"]) as CryptoKey;
+			} catch {
+				throw new Error("[EngineAPIResolver] Failed to import PNP JWK privateKey.");
+			}
 		}
 
-		const jwk = typeof privateKey === "string"
-			? JSON.parse(privateKey) as JsonWebKey
-			: privateKey;
-		const normalizedAlgorithm: AlgorithmIdentifier | RsaHashedImportParams = algorithm === "RS256"
-			? { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }
-			: { name: "Ed25519" };
-
-		return (crypto.subtle.importKey as any)(
-			"jwk",
-			jwk,
-			normalizedAlgorithm,
-			false,
-			["sign"]
-		);
+		try {
+			return await (crypto.subtle.importKey as any)("jwk", privateKey, normalizedAlgorithm, false, ["sign"]) as CryptoKey;
+		} catch {
+			throw new Error("[EngineAPIResolver] Failed to import PNP JWK privateKey.");
+		}
 	}
 
 	private async cryptoAsymmetricSign(payload: string, privateKey: CryptoKey): Promise<string> {
-		const encoder = new TextEncoder();
-		const payloadData = encoder.encode(payload);
-
 		const signatureBuffer = await crypto.subtle.sign(
 			privateKey.algorithm.name,
 			privateKey,
-			payloadData
+			new TextEncoder().encode(payload),
 		);
-
-		const binaryString = String.fromCharCode(...new Uint8Array(signatureBuffer));
-		return btoa(binaryString);
+		return encodeBytesBase64(new Uint8Array(signatureBuffer));
 	}
 }

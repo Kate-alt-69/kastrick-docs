@@ -11,6 +11,7 @@
 			"name": "RBE",
 			"repo": "Kastrick8/RBE",
 			"repoUrl": "https://github.com/Kastrick8/RBE",
+			"originalSiteUrl": "https://kastrick.vercel.app/project/rbe/doc",
 			"branch": "main",
 			"fallbackBranch": "master",
 			"established": true,
@@ -20,14 +21,46 @@
 			"rebaseNotice": null,
 			"description": "Rust Backend Engine with REL (Runtime Engine Language), RELC compiler, immutable Runtime Images, Service Mother, and Container isolation.",
 			"tracks": ["docs", "guides"],
-			"docsPaths": ["doc", "docs", "README.md"],
-			"guidesPaths": ["guides", "doc/guides"]
+			"docsPaths": [
+				"doc",
+				"project-package/README.md",
+				"install-executor/README.md",
+				"container-runtime/README.md",
+				"container-runtime/DASHBOARD.md",
+				"vault/README.md",
+				"engine/README.md",
+				"sdk/SDK-PARITY.md"
+			],
+			"excludePaths": ["docs"],
+			"guidesPaths": [
+				"doc/linux-builds.md",
+				"doc/binary-updates.md",
+				"doc/sdk-local-authoring.md",
+				"doc/sdk-project-activation.md",
+				"doc/cloud-node-local-sync.md"
+			],
+			"sectionMap": {
+				"doc": "Core Architecture",
+				"doc/server.server": "Server REL",
+				"doc/x.route": "Route REL",
+				"doc/x.module": "Module REL",
+				"doc/x.service": "Service REL",
+				"doc/error-codes": "Error Codes",
+				"doc/rel-design": "REL Design",
+				"sdk": "SDK",
+				"container-runtime": "Container Runtime",
+				"project-package": "Packages & Install",
+				"install-executor": "Packages & Install",
+				"vault": "Security & Vault",
+				"engine": "Core Architecture"
+			}
 		},
 		{
 			"id": "nextjs-engine",
 			"name": "Next.js Engine",
 			"repo": "Kastrick8/nextjs-engine",
 			"repoUrl": "https://github.com/Kastrick8/nextjs-engine",
+			"originalSiteUrl": "https://kastrick.vercel.app/project/nextjs-engine",
 			"branch": "main-3",
 			"fallbackBranch": "main",
 			"established": true,
@@ -37,14 +70,31 @@
 			"rebaseNotice": "WARNING: Next.js Engine documentation is incomplete and currently undergoing a full Generation 3 rebase. Pages may be outdated or missing newer subsystems (such as EngineScroll). Verify behavior directly against the repository source.",
 			"description": "Schema-driven compiler and runtime for React 19 and Next.js 16 with server-first execution plans, client islands, and EngineScroll.",
 			"tracks": ["docs", "guides"],
-			"docsPaths": ["docs/3", "docs", "README.md"],
-			"guidesPaths": ["guides", "docs/guides"]
+			"docsPaths": ["docs/3", "README.md"],
+			"excludePaths": ["docs/engine-components", "docs/release", "docs/gen3"],
+			"guidesPaths": ["docs/3/guides", "guides"],
+			"sectionMap": {
+				"docs/3": "Generation 3 Overview",
+				"docs/3/guides": "Guides",
+				"docs/3/ne": "Engine Core",
+				"docs/3/ne/compiler": "Compiler",
+				"docs/3/ne/cli": "NE CLI",
+				"docs/3/ne/debug": "EngineDebug",
+				"docs/3/ne/security": "Security",
+				"docs/3/ne/errors": "Error Handling",
+				"docs/3/module": "Modules",
+				"docs/3/engine-components": "Engine Components",
+				"docs/3/configuration": "Configuration",
+				"docs/3/integrations": "Integrations",
+				"docs/3/error-codes": "Error Codes"
+			}
 		},
 		{
 			"id": "packagex",
 			"name": "PackageX",
 			"repo": "Package-X/packagex",
 			"repoUrl": "https://github.com/Package-X/packagex",
+			"originalSiteUrl": "https://kastrick.vercel.app/project/packagex",
 			"branch": "main",
 			"fallbackBranch": "main",
 			"established": false,
@@ -54,14 +104,17 @@
 			"rebaseNotice": null,
 			"description": "Cross-OS Rust installer assembly engine, white-label runtime, and packaging core.",
 			"tracks": ["docs", "guides"],
-			"docsPaths": ["docs", "README.md"],
-			"guidesPaths": ["guides"]
+			"docsPaths": ["doc", "docs", "README.md"],
+			"excludePaths": [],
+			"guidesPaths": ["guides"],
+			"sectionMap": {}
 		},
 		{
 			"id": "packx",
 			"name": "PackX",
 			"repo": "Package-X/packx",
 			"repoUrl": "https://github.com/Package-X/packx",
+			"originalSiteUrl": "https://kastrick.vercel.app/project/packx",
 			"branch": "main",
 			"fallbackBranch": "main",
 			"established": false,
@@ -71,14 +124,17 @@
 			"rebaseNotice": null,
 			"description": "Thin CLI and shim router for building, signing, testing, and verifying PackageX assemblies.",
 			"tracks": ["docs", "guides"],
-			"docsPaths": ["docs", "README.md"],
-			"guidesPaths": ["guides"]
+			"docsPaths": ["doc", "docs", "README.md"],
+			"excludePaths": [],
+			"guidesPaths": ["guides"],
+			"sectionMap": {}
 		},
 		{
 			"id": "packagex-sdks",
 			"name": "PackageX SDKs",
 			"repo": "Package-X/packagex",
 			"repoUrl": "https://github.com/Package-X/packagex",
+			"originalSiteUrl": "https://kastrick.vercel.app/project/packagex-sdks",
 			"branch": "main",
 			"fallbackBranch": "main",
 			"established": false,
@@ -89,13 +145,16 @@
 			"description": "Authoring guides and protocol specifications for teams building self-reserved SDKs on top of PackageX.",
 			"tracks": ["docs", "guides"],
 			"docsPaths": ["docs/sdks"],
-			"guidesPaths": ["guides/sdks"]
+			"excludePaths": [],
+			"guidesPaths": ["guides/sdks"],
+			"sectionMap": {}
 		},
 		{
 			"id": "kastricks-utility",
 			"name": "Kastrick's Utility",
 			"repo": "Kastrick8/kastricks_utility",
 			"repoUrl": "https://github.com/Kastrick8/kastricks_utility",
+			"originalSiteUrl": "https://kastrick.vercel.app/project/kastricks-utility",
 			"branch": "main",
 			"fallbackBranch": "main",
 			"established": false,
@@ -105,8 +164,10 @@
 			"rebaseNotice": null,
 			"description": "Standalone Blender 4.2+ creator toolkit, optimizer, and zero-SDK Mod Host with separate Guides and Modding Docs.",
 			"tracks": ["guides", "docs"],
-			"docsPaths": ["docs", "README.md"],
-			"guidesPaths": ["guides"]
+			"docsPaths": ["doc", "docs", "README.md"],
+			"excludePaths": [],
+			"guidesPaths": ["guides"],
+			"sectionMap": {}
 		}
 	]
 }

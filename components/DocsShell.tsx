@@ -48,6 +48,7 @@ interface NotebookItem {
 }
 
 const ES_PROTOCOL = "#-es?";
+let highlightTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Parse and execute an EngineScroll #-es share URL against the live DOM. */
 function executeEngineScrollHash(rawHash?: string): string | null {
@@ -87,9 +88,16 @@ function executeEngineScrollHash(rawHash?: string): string | null {
 	}
 	const top = Math.max(0, el.getBoundingClientRect().top + window.scrollY + safeOffset);
 	window.scrollTo({ top, behavior: "smooth" });
-	el.classList.remove("kd-share-highlight");
+	// Clear any previous highlight so multiple headings never stay highlighted or stack.
+	document.querySelectorAll(".kd-share-highlight").forEach((node) => {
+		node.classList.remove("kd-share-highlight");
+	});
 	void el.offsetWidth;
 	el.classList.add("kd-share-highlight");
+	clearTimeout(highlightTimer);
+	highlightTimer = setTimeout(() => {
+		el.classList.remove("kd-share-highlight");
+	}, 2200);
 	return targetId;
 }
 
@@ -103,6 +111,7 @@ export default function DocsShell({
 }: DocsShellProps) {
 	const router = useRouter();
 	const [projectsOpen, setProjectsOpen] = useState(false);
+	const [pagesOpen, setPagesOpen] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [bookmarksOpen, setBookmarksOpen] = useState(false);
 	const [notebookOpen, setNotebookOpen] = useState(false);
@@ -162,6 +171,8 @@ export default function DocsShell({
 		const onOutside = (e: MouseEvent) => {
 			if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
 				setProjectsOpen(false);
+				setPagesOpen(false);
+				setPagesOpen(false);
 			}
 		};
 		document.addEventListener("mousedown", onOutside);
@@ -394,43 +405,103 @@ export default function DocsShell({
 	return (
 		<div className="kd-root">
 			<header className="kd-topbar">
-				<div className="kd-topbar-left">
-					<Link href="/" className="kd-brand">
-						Kastrick Docs
+				<div className="kd-topbar-left" ref={dropdownRef}>
+					<Link href="/" className="kd-brand" title="Kastrick Docs">
+						K8D
 					</Link>
-					<div className="kd-dropdown" ref={dropdownRef}>
-						<button
-							type="button"
-							className="kd-dropdown-trigger"
-							onClick={() => setProjectsOpen((o) => !o)}
-						>
-							Projects: <strong>{project.name}</strong> ▾
-						</button>
-						{projectsOpen && (
-							<div className="kd-dropdown-menu">
-								{manifest.projects.map((proj) => {
-									const first = proj.pages[0];
-									const href = first
-										? `/${first.track}/${proj.id}/${first.slug}`
-										: `/docs/${proj.id}/overview`;
-									return (
+
+					{/* Interactive Path Hierarchy: / <project> / <slug> */}
+					<nav className="kd-path-bar" aria-label="Documentation path">
+						<div className="kd-dropdown">
+							<button
+								type="button"
+								className="kd-slash-btn"
+								title="Switch project"
+								onClick={() => {
+									setPagesOpen(false);
+									setProjectsOpen((o) => !o);
+								}}
+							>
+								/
+							</button>
+							<Link href={`/${project.id}`} className="kd-path-seg">
+								{project.id}
+							</Link>
+							{projectsOpen && (
+								<div className="kd-dropdown-menu">
+									{manifest.projects.map((proj) => (
 										<Link
 											key={proj.id}
-											href={href}
+											href={`/${proj.id}`}
 											className={`kd-dropdown-item ${proj.id === project.id ? "active" : ""}`}
 											onClick={() => setProjectsOpen(false)}
 										>
 											<div className="kd-dropdown-item-head">
-												<span>{proj.name}</span>
+												<span>/{proj.id} · {proj.name}</span>
 												{!proj.established && <span className="kd-badge-notest">NOT_EST</span>}
 											</div>
 											<small>{proj.description}</small>
 										</Link>
-									);
-								})}
+									))}
+								</div>
+							)}
+						</div>
+
+						{page && (
+							<div className="kd-dropdown">
+								<button
+									type="button"
+									className="kd-slash-btn"
+									title={`Browse /${project.id} pages`}
+									onClick={() => {
+										setProjectsOpen(false);
+										setPagesOpen((o) => !o);
+									}}
+								>
+									/
+								</button>
+								<button
+									type="button"
+									className="kd-path-seg kd-path-seg-active"
+									onClick={() => {
+										setProjectsOpen(false);
+										setPagesOpen((o) => !o);
+									}}
+								>
+									{page.slug} ▾
+								</button>
+								{pagesOpen && (
+									<div className="kd-dropdown-menu kd-pages-menu">
+										<Link
+											href={`/${project.id}`}
+											className="kd-dropdown-item"
+											onClick={() => setPagesOpen(false)}
+										>
+											<div className="kd-dropdown-item-head">
+												<span>/{project.id}</span>
+												<span className="kd-badge-notest">INDEX</span>
+											</div>
+											<small>Project landing &amp; full page list</small>
+										</Link>
+										{project.pages.map((item) => (
+											<Link
+												key={item.slug}
+												href={`/${project.id}/${item.slug}`}
+												className={`kd-dropdown-item ${item.slug === page.slug ? "active" : ""}`}
+												onClick={() => setPagesOpen(false)}
+											>
+												<div className="kd-dropdown-item-head">
+													<span>/{project.id}/{item.slug}</span>
+													<span className="kd-badge-notest">{item.track.toUpperCase()}</span>
+												</div>
+												<small>{item.title}</small>
+											</Link>
+										))}
+									</div>
+								)}
 							</div>
 						)}
-					</div>
+					</nav>
 				</div>
 				<div className="kd-topbar-right">
 					<button type="button" className="kd-btn-secondary" onClick={() => setBookmarksOpen(true)}>
@@ -454,8 +525,8 @@ export default function DocsShell({
 						{(["docs", "guides"] as DocTrack[]).map((t) => {
 							const targetPage = project.pages.find((p) => p.track === t);
 							const href = targetPage
-								? `/${t}/${project.id}/${targetPage.slug}`
-								: `/${t}/${project.id}/overview`;
+								? `/${project.id}/${targetPage.slug}`
+								: `/${project.id}`;
 							return (
 								<Link key={t} href={href} className={`kd-track-btn ${track === t ? "active" : ""}`}>
 									{t === "docs" ? "Docs" : "Guides"}
@@ -463,18 +534,29 @@ export default function DocsShell({
 							);
 						})}
 					</div>
-					<ul className="kd-nav-list">
-						{trackPages.map((item) => (
-							<li key={item.slug}>
-								<Link
-									href={`/${track}/${project.id}/${item.slug}`}
-									className={`kd-nav-link ${page?.slug === item.slug ? "active" : ""}`}
-								>
-									{item.title}
-								</Link>
-							</li>
-						))}
-					</ul>
+					{Object.entries(
+						trackPages.reduce<Record<string, DocPageMeta[]>>((acc, item) => {
+							const sec = item.section || (track === "guides" ? "Guides" : "Documentation");
+							(acc[sec] ||= []).push(item);
+							return acc;
+						}, {}),
+					).map(([sectionName, items]) => (
+						<div key={sectionName} className="kd-nav-group">
+							<div className="kd-nav-group-title">{sectionName}</div>
+							<ul className="kd-nav-list">
+								{items.map((item) => (
+									<li key={item.slug}>
+										<Link
+											href={`/${project.id}/${item.slug}`}
+											className={`kd-nav-link ${page?.slug === item.slug ? "active" : ""}`}
+										>
+											{item.title}
+										</Link>
+									</li>
+								))}
+							</ul>
+						</div>
+					))}
 				</aside>
 
 				<main className="kd-main">
@@ -628,7 +710,7 @@ export default function DocsShell({
 							{bookmarks.map((b) => (
 								<li key={b.key}>
 									<Link
-										href={`/${b.track}/${b.projectId}/${b.slug}${b.anchor ? `#-es?move=${encodeURIComponent(b.anchor)}&offset=-84&duration=550` : ""}`}
+										href={`/${b.projectId}/${b.slug}${b.anchor ? `#-es?move=${encodeURIComponent(b.anchor)}&offset=-84&duration=550` : ""}`}
 										onClick={() => setBookmarksOpen(false)}
 									>
 										<strong>{b.title}</strong>
@@ -685,7 +767,7 @@ export default function DocsShell({
 							{searchResults.map(({ project: proj, page: item }) => (
 								<li key={`${proj.id}-${item.track}-${item.slug}`}>
 									<Link
-										href={`/${item.track}/${proj.id}/${item.slug}`}
+										href={`/${proj.id}/${item.slug}`}
 										onClick={() => setSearchOpen(false)}
 									>
 										<strong>{item.title}</strong>

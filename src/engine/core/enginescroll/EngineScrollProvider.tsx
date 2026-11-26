@@ -9,90 +9,83 @@ import React, {
 	useCallback,
 	useContext,
 	useEffect,
-	useRef,
+	useMemo,
 } from "react";
-
-import { EngineScroll }          from "./EngineScroll";
+import { EngineScroll } from "./EngineScroll";
+import { EngineScrollBehavior } from "./EngineScrollBehavior";
 import { EngineScrollNavigator } from "./EngineScrollNavigator";
-import { EngineScrollURL }       from "./EngineScrollURL";
-
-import type { EngineScrollTarget } from "./EngineScrollNavigator";
-
-/* ========================================================================== */
-/*  Context                                                                   */
-/* ========================================================================== */
+import { EngineScrollURL } from "./EngineScrollURL";
+import type {
+	EngineScrollNavigationOptions,
+	EngineScrollTarget,
+} from "./EngineScrollNavigator";
+import type { EngineScrollBehaviorPolicy } from "./EngineScrollTypes";
 
 export interface EngineScrollCtx {
-	/** Navigate to a target (semantic name, DOM id, absolute point, or keyword) */
 	move: (
-		target:    EngineScrollTarget,
-		offset?:   number,
+		target: EngineScrollTarget,
+		offsetOrOptions?: number | EngineScrollNavigationOptions,
 		duration?: number,
 	) => boolean;
+	nearest: (options?: EngineScrollNavigationOptions) => boolean;
+	next: (options?: EngineScrollNavigationOptions & { wrap?: boolean }) => boolean;
+	previous: (options?: EngineScrollNavigationOptions & { wrap?: boolean }) => boolean;
 }
 
 const ESContext = createContext<EngineScrollCtx | null>(null);
 
-/* ========================================================================== */
-/*  Hook                                                                      */
-/* ========================================================================== */
-
 export function useEngineScroll(): EngineScrollCtx {
-
 	const ctx = useContext(ESContext);
-
 	if (!ctx) {
-		throw new Error(
-			"[EngineScroll] useEngineScroll must be used inside <EngineScrollProvider>.",
-		);
+		throw new Error("[EngineScroll] useEngineScroll must be used inside <EngineScrollProvider>.");
 	}
-
 	return ctx;
-
 }
-
-/* ========================================================================== */
-/*  Provider                                                                  */
-/* ========================================================================== */
 
 export interface EngineScrollProviderProps {
 	children: React.ReactNode;
+	policy?: EngineScrollBehaviorPolicy;
 }
 
-export function EngineScrollProvider({
-	children,
-}: EngineScrollProviderProps) {
-
-	const initialized = useRef(false);
-
+export function EngineScrollProvider({ children, policy }: EngineScrollProviderProps) {
 	useEffect(() => {
-
-		if (initialized.current) return;
-		initialized.current = true;
-
-		// Boot the scroll runtime (no-op if already running)
+		const releasePolicy = policy
+			? EngineScrollBehavior.scope(policy)
+			: () => {};
 		EngineScroll.initialize();
-
-		// Execute any #-es? command present at page load
 		EngineScrollURL.execute();
-
-		// Subscribe to future hash changes
-		return EngineScrollURL.listen();
-
-	}, []);
+		const stopListening = EngineScrollURL.listen();
+		return () => {
+			stopListening();
+			releasePolicy();
+		};
+	}, [policy]);
 
 	const move = useCallback((
-		target:    EngineScrollTarget,
-		offset     = 0,
+		target: EngineScrollTarget,
+		offsetOrOptions?: number | EngineScrollNavigationOptions,
 		duration?: number,
-	): boolean => {
-		return EngineScrollNavigator.move(target, offset, duration);
-	}, []);
+	): boolean => EngineScrollNavigator.move(target, offsetOrOptions, duration), []);
+	const nearest = useCallback(
+		(options?: EngineScrollNavigationOptions): boolean => EngineScrollNavigator.nearest(options),
+		[],
+	);
+	const next = useCallback(
+		(options?: EngineScrollNavigationOptions & { wrap?: boolean }): boolean => EngineScrollNavigator.next(options),
+		[],
+	);
+	const previous = useCallback(
+		(options?: EngineScrollNavigationOptions & { wrap?: boolean }): boolean => EngineScrollNavigator.previous(options),
+		[],
+	);
+	const value = useMemo<EngineScrollCtx>(
+		() => ({ move, nearest, next, previous }),
+		[move, nearest, next, previous],
+	);
 
 	return (
-		<ESContext.Provider value={{ move }}>
+		<ESContext.Provider value={value}>
 			{children}
 		</ESContext.Provider>
 	);
-
 }

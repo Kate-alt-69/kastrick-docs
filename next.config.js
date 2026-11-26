@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const withEngine = require("./src/engine/plugins/enginePlugin");
 
 // ── Engine 404 fallback guard ─────────────────────────────────────────────────
 const appNotFound = path.join(__dirname, "app", "not-found.tsx");
@@ -59,4 +60,6 @@ const nextConfig = {
 	},
 };
 
-module.exports = nextConfig;
+// Wire Generation 3 EnginePlugin (EngineBuildAdapter, EngineCompiler, EngineSEO,
+// EngineDebug, EngineShader, EngineAPI, and Turbopack cache integration).
+module.exports = withEngine(nextConfig);

@@ -4,80 +4,75 @@
 
 import { EngineScrollRuntime } from "../EngineScrollRuntime";
 
-/**
- * Owns the ONLY requestAnimationFrame used by EngineScroll.
- */
+/** Owns the single requestAnimationFrame used by EngineScroll. */
 export class BrowserScheduler {
-
 	private static frameRequested = false;
+	private static rerunRequested = false;
+	private static cancelled = false;
+	private static updateCallback: (() => void) | null = null;
 
-	// -------------------------------------------------------------------------
-	// Schedule
-	// -------------------------------------------------------------------------
+	public static setUpdate(update: () => void): void {
+		this.updateCallback = update;
+	}
 
-	public static request(update: () => void): void {
+	public static request(update?: () => void): void {
+		if (update) this.updateCallback = update;
+		const callback = this.updateCallback;
+		if (!callback || typeof requestAnimationFrame === "undefined") return;
 
-		const runtime = EngineScrollRuntime.get();
-		const cache = runtime.getCache();
-
+		const cache = EngineScrollRuntime.get().getCache();
 		if (this.frameRequested) {
+			this.rerunRequested = true;
 			cache.pending = true;
 			return;
 		}
 
+		this.cancelled = false;
 		this.frameRequested = true;
-
 		cache.pending = true;
 
-		cache.rafId = requestAnimationFrame((timestamp) => {
-
-			this.frameRequested = false;
-
+		const rafId = requestAnimationFrame((timestamp) => {
 			cache.pending = false;
-
 			cache.running = true;
-
-			cache.lastFrameTime =
-				timestamp - cache.lastTimestamp;
-
-			cache.lastTimestamp =
-				timestamp;
-
+			cache.lastFrameTime = cache.lastTimestamp === 0
+				? 16
+				: timestamp - cache.lastTimestamp;
+			cache.lastTimestamp = timestamp;
 			cache.frame++;
 
-			update();
+			let completed = false;
+			try {
+				callback();
+				completed = true;
+			} finally {
+				cache.running = false;
+				if (cache.rafId === rafId) cache.rafId = null;
+				this.frameRequested = false;
 
-			cache.running = false;
+				const shouldContinue = completed
+					&& !this.cancelled
+					&& (this.rerunRequested || cache.isAnimating);
 
-			cache.rafId = null;
-
+				this.rerunRequested = false;
+				cache.pending = false;
+				if (shouldContinue) this.request();
+			}
 		});
 
+		cache.rafId = rafId;
 	}
-
-	// -------------------------------------------------------------------------
-	// Cancel
-	// -------------------------------------------------------------------------
 
 	public static cancel(): void {
+		const cache = EngineScrollRuntime.get().getCache();
+		this.cancelled = true;
+		this.rerunRequested = false;
 
-		const runtime = EngineScrollRuntime.get();
-		const cache = runtime.getCache();
-
-		if (cache.rafId !== null) {
-
+		if (cache.rafId !== null && !cache.running) {
 			cancelAnimationFrame(cache.rafId);
-
-			cache.rafId = null;
-
 		}
 
+		cache.rafId = null;
 		cache.pending = false;
-
-		cache.running = false;
-
-		this.frameRequested = false;
-
+		if (!cache.running) this.frameRequested = false;
 	}
-
 }

@@ -1,51 +1,27 @@
 "use client";
 // ─────────────────────────────────────────────────────────────────────────────
-//  Engine — EngineVideo
-//
-//  Videos are the heaviest asset type — they should NEVER start loading until
-//  the user is about to see them.
-//
-//  Strategy:
-//    1. Render an empty <div> placeholder (with poster image if provided)
-//    2. When the container enters the viewport (rootMargin 800px ahead),
-//       inject the <video> element with the real src
-//    3. The browser starts buffering only at that point
-//    4. While buffering, show the poster image + optional loading ring
-//    5. Once metadata is loaded, fade in the video
-//
-//  Supports:
-//    · MP4, WebM, HLS (via <source> tags)
-//    · Autoplay muted (safe — no browser block)
-//    · Poster image
-//    · Loop / controls toggle
-//    · Aspect ratio preservation (no CLS)
+// EngineVideo — EngineScheduler-aware video loading
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, {
-	useRef,
-	useState,
+	memo,
 	useCallback,
 	useEffect,
-	memo,
+	useMemo,
+	useRef,
+	useState,
 	type CSSProperties,
 } from "react";
-import { useInView } from "../hooks/useInView";
-
-// ── Source type ───────────────────────────────────────────────────────────────
+import { useEngineSchedule } from "../hooks/useEngineScheduler";
 
 export interface VideoSource {
 	src: string;
 	type?: "video/mp4" | "video/webm" | "application/x-mpegURL" | string;
 }
 
-// ── Props ─────────────────────────────────────────────────────────────────────
-
 export interface EngineVideoProps {
-	/** Single src string or array of <source> objects */
 	src: string | VideoSource[];
-	/** Poster image shown while video is loading */
 	poster?: string;
-	/** Aspect ratio CSS value — default "16/9" */
 	aspectRatio?: string;
 	autoPlay?: boolean;
 	muted?: boolean;
@@ -53,20 +29,15 @@ export interface EngineVideoProps {
 	controls?: boolean;
 	playsInline?: boolean;
 	preload?: "none" | "metadata" | "auto";
-	/** Distance above viewport to start loading. Default: 800px */
 	rootMargin?: string;
-	/** Skip lazy loading — load immediately (above-fold videos) */
 	eager?: boolean;
 	className?: string;
 	style?: CSSProperties;
 	borderRadius?: string;
-	/** Called when the video can play */
 	onCanPlay?: () => void;
-	/** Called when the video ends */
 	onEnded?: () => void;
+	engineThemeStyles?: Partial<Record<"video" | "poster", CSSProperties>>;
 }
-
-// ── Loading spinner ───────────────────────────────────────────────────────────
 
 function VideoSpinner() {
 	return (
@@ -79,45 +50,30 @@ function VideoSpinner() {
 				alignItems: "center",
 				justifyContent: "center",
 				background: "rgba(0,0,0,0.35)",
+				pointerEvents: "none",
 			}}
 		>
-			<svg
-				width="48"
-				height="48"
-				viewBox="0 0 48 48"
-				fill="none"
-				style={{ animation: "e-spin 0.8s linear infinite" }}
-			>
-				<circle
-					cx="24"
-					cy="24"
-					r="20"
-					stroke="white"
-					strokeWidth="4"
-					strokeOpacity="0.3"
-				/>
-				<path
-					d="M24 4 A20 20 0 0 1 44 24"
-					stroke="white"
-					strokeWidth="4"
-					strokeLinecap="round"
-				/>
+			<svg width="48" height="48" viewBox="0 0 48 48" fill="none" style={{ animation: "e-spin 0.8s linear infinite" }}>
+				<circle cx="24" cy="24" r="20" stroke="white" strokeWidth="4" strokeOpacity="0.3" />
+				<path d="M24 4 A20 20 0 0 1 44 24" stroke="white" strokeWidth="4" strokeLinecap="round" />
 			</svg>
 		</div>
 	);
 }
 
-// Inject spin keyframe once
 let spinInjected = false;
-function injectSpinCSS() {
+function injectSpinCSS(): void {
 	if (typeof document === "undefined" || spinInjected) return;
 	spinInjected = true;
-	const s = document.createElement("style");
-	s.textContent = `@keyframes e-spin { to { transform:rotate(360deg) } }`;
-	document.head.appendChild(s);
+	const style = document.createElement("style");
+	style.textContent = `
+		@keyframes e-spin { to { transform:rotate(360deg) } }
+		@media (prefers-reduced-motion: reduce) {
+			[aria-label="Loading video…"] svg { animation: none !important; }
+		}
+	`;
+	document.head.appendChild(style);
 }
-
-// ── Component ─────────────────────────────────────────────────────────────────
 
 export const EngineVideo = memo(function EngineVideo({
 	src,
@@ -128,7 +84,7 @@ export const EngineVideo = memo(function EngineVideo({
 	loop = false,
 	controls = true,
 	playsInline = true,
-	preload = "none",
+	preload,
 	rootMargin = "800px 0px",
 	eager = false,
 	className,
@@ -136,45 +92,75 @@ export const EngineVideo = memo(function EngineVideo({
 	borderRadius,
 	onCanPlay,
 	onEnded,
+	engineThemeStyles,
 }: EngineVideoProps) {
-	const videoRef = useRef<HTMLVideoElement | null>(null);
+	const [activated, setActivated] = useState(eager);
 	const [videoReady, setVideoReady] = useState(false);
 	const [buffering, setBuffering] = useState(false);
+	const videoRef = useRef<HTMLVideoElement>(null);
+	const schedule = useEngineSchedule<HTMLDivElement>({
+		priority: eager,
+		nearMargin: rootMargin,
+		releaseWhenFar: true,
+	});
+	const inView = eager || schedule.visible;
 
 	useEffect(() => {
 		injectSpinCSS();
 	}, []);
 
-	// Trigger IntersectionObserver — start loading 800px before entry
-	const { ref: wrapperRef, inView } = useInView<HTMLDivElement>({
-		rootMargin,
-		once: true,
-		initialInView: eager,
-	});
-
-	// When the video element is injected and starts buffering, show spinner
 	useEffect(() => {
-		if (!inView) return;
+		if (
+			schedule.state === "critical"
+			|| schedule.visible
+			|| (schedule.near && !schedule.underFramePressure)
+		) {
+			setActivated(true);
+		}
+	}, [schedule.near, schedule.state, schedule.underFramePressure, schedule.visible]);
+
+	const resolvedPreload = preload ?? (autoPlay ? "auto" : "metadata");
+	const sources = useMemo<VideoSource[]>(() => Array.isArray(src)
+		? src
+		: [{ src, type: src.endsWith(".webm") ? "video/webm" : "video/mp4" }], [src]);
+	const sourceKey = useMemo(() => sources
+		.map((source, index) => `${index}\u001f${source.src}\u001f${source.type ?? ""}`)
+		.join("\u001e"), [sources]);
+
+	useEffect(() => {
+		setVideoReady(false);
+		setBuffering(false);
+	}, [sourceKey]);
+
+	useEffect(() => {
+		if (!inView || !autoPlay) return;
 		setBuffering(true);
-	}, [inView]);
+	}, [autoPlay, inView, sourceKey]);
+
+	useEffect(() => {
+		if (!activated || !autoPlay) return;
+		const video = videoRef.current;
+		if (!video) return;
+
+		if (!inView) {
+			video.pause();
+			setBuffering(false);
+			return;
+		}
+
+		const playResult = video.play();
+		if (playResult && typeof playResult.catch === "function") {
+			void playResult.catch(() => {
+				// Browser autoplay policy may reject playback; native controls remain usable.
+			});
+		}
+	}, [activated, autoPlay, inView, sourceKey]);
 
 	const handleCanPlay = useCallback(() => {
 		setVideoReady(true);
 		setBuffering(false);
 		onCanPlay?.();
-		// Autoplay after buffer if requested
-		if (autoPlay && videoRef.current) {
-			videoRef.current.play().catch(() => {/* autoplay blocked — silent */});
-		}
-	}, [autoPlay, onCanPlay]);
-
-	// ── Source resolution ──────────────────────────────────────────────────────
-
-	const sources: VideoSource[] = Array.isArray(src)
-		? src
-		: [{ src, type: src.endsWith(".webm") ? "video/webm" : "video/mp4" }];
-
-	// ── Render ─────────────────────────────────────────────────────────────────
+	}, [onCanPlay]);
 
 	const wrapperStyle: CSSProperties = {
 		position: "relative",
@@ -185,37 +171,29 @@ export const EngineVideo = memo(function EngineVideo({
 		borderRadius: borderRadius ?? undefined,
 		...style,
 	};
+	const showExternalPoster = Boolean(poster && !videoReady && (!activated || autoPlay));
 
 	return (
-		<div ref={wrapperRef} className={className} style={wrapperStyle}>
-			{/* Poster image — always shown until video is ready */}
-			{poster && !videoReady && (
+		<div ref={schedule.ref} className={className} style={wrapperStyle}>
+			{showExternalPoster && (
 				// eslint-disable-next-line @next/next/no-img-element
 				<img
 					src={poster}
 					alt="Video thumbnail"
-					style={{
-						position: "absolute",
-						inset: 0,
-						width: "100%",
-						height: "100%",
-						objectFit: "cover",
-					}}
+					style={{ ...engineThemeStyles?.poster, position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: engineThemeStyles?.poster?.objectFit ?? "cover" }}
 				/>
 			)}
-
-			{/* Buffering spinner */}
 			{buffering && !videoReady && <VideoSpinner />}
-
-			{/* Video — only injected into DOM when in-view */}
-			{inView && (
+			{activated && (
 				<video
 					ref={videoRef}
+					key={sourceKey}
+					autoPlay={autoPlay}
 					muted={muted}
 					loop={loop}
 					controls={controls}
 					playsInline={playsInline}
-					preload={preload}
+					preload={resolvedPreload}
 					poster={poster}
 					onCanPlay={handleCanPlay}
 					onEnded={onEnded}
@@ -226,13 +204,14 @@ export const EngineVideo = memo(function EngineVideo({
 						inset: 0,
 						width: "100%",
 						height: "100%",
-						objectFit: "cover",
-						opacity: videoReady ? 1 : 0,
-						transition: "opacity 0.4s ease",
+						objectFit: engineThemeStyles?.video?.objectFit ?? "cover",
+						...engineThemeStyles?.video,
+						opacity: autoPlay ? (videoReady ? 1 : 0) : 1,
+						transition: "opacity 0.25s ease",
 					}}
 				>
-					{sources.map((s, i) => (
-						<source key={i} src={s.src} type={s.type} />
+					{sources.map((source, index) => (
+						<source key={`${source.src}-${index}`} src={source.src} type={source.type} />
 					))}
 					Your browser does not support HTML5 video.
 				</video>

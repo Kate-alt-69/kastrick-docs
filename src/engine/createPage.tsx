@@ -1,10 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//	Engine — createPage
-//
-//	The main entry point for defining pages with the engine.
-//	Returns a standard Next.js page component (works with both App Router
-//	and Pages Router) that wraps the schema in the EngineProvider and
-//	injects a CSS <style> tag containing all collected CSS variable blocks.
+// Engine — createPage
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { type ReactNode } from "react";
@@ -15,57 +10,51 @@ import type {
 	PageMeta,
 	MarkdownProps,
 	EngineTheme as EngineThemeConfig,
-	MobileSchemaConfig,
 } from "./schema/types";
-import { EngineProvider } from "./providers/EngineProvider";
+import { resolveEngineThemeSchema } from "./component/engineTheme/resolveTheme";
+import type { EngineComponentRegistry } from "./core/registry";
+import { createTrustedEngineComponent, type CreateCustomComponentOptions, type EngineCustomReactComponent } from "./core/EngineCustomComponent";
+import { normalizeEngineThemeFontHrefs } from "./component/engineTheme/fontUrls";
+import { flattenEngineThemeTokens, normalizeEngineThemeVariables } from "./component/engineTheme/tokens";
+import { EngineCollectedStyles, EngineProvider } from "./providers/EngineProvider";
+import { EngineScrollProvider } from "./core/enginescroll";
 import { SchemaRenderer } from "./core/SchemaRenderer";
-import { globalStyleCollector, StyleCollector } from "./core/StyleCollector";
-import { clearResolverCache } from "./core/resolver";
-import { applyMobilePatches } from "./core/EngineMobilePatcher";
-import { getServerDevice } from "./core/EngineDevice";
+import {
+	compileAdaptiveSchema,
+	type EngineAdaptiveDeviceConfig,
+} from "./compiler/EngineAdaptiveCompiler";
+import { compilePage } from "./compiler/EngineCompiler";
+import { EngineServerRenderer } from "./compiler/EngineServerRenderer";
+import type { EngineCompiledPage } from "./compiler/types";
+import { EngineBrowserUpdateDialog } from "./components/EngineCompatibilityDialog";
+import { engineFallbackPlanNeedsCompatibilityCheck } from "./core/EngineBrowserCompatibility";
+import dynamic from "next/dynamic";
 
-// ── createPage options ────────────────────────────────────────────────────────
+const EngineDebugRuntimeMonitor = process.env.NODE_ENV === "development"
+	? dynamic(() => import("./debug/EngineDebugRuntimeMonitor").then((module) => module.EngineDebugRuntimeMonitor))
+	: () => null;
+
+export interface EngineCompilerOptions {
+	strict?: boolean;
+	pageId?: string;
+	/** Set false to temporarily force the v2 client renderer while migrating. */
+	serverFirst?: boolean;
+}
 
 interface CreateOptionsBase {
-	/** Engine configuration overrides */
 	config?: EngineConfig;
-	/**
-	 * Named event handlers available to nodes via props.onClick = "handlerName".
-	 * These are provided at the call site so they can close over React state.
-	 */
 	handlers?: Record<string, (...args: unknown[]) => void>;
-	/**
-	 * Named slot content — React nodes that can be injected into the schema
-	 * tree via { type: "slot", props: { name: "mySlot" } } nodes.
-	 */
 	slots?: Record<string, ReactNode>;
-	/**
-	 * Mobile layout patches. When the request comes from a mobile device,
-	 * these patches are applied to the schema server-side before render,
-	 * producing an alternate tree. The desktop schema is never mutated.
-	 *
-	 * Target nodes by their `name` field using `"children#name"` selectors.
-	 * Order matters — later entries override earlier ones for the same node.
-	 *
-	 * @example
-	 * ```ts
-	 * mobile: [
-	 *   { "children#desktop-nav": { cprop: { hide: true } } },
-	 *   { "children#mobile-nav": { props: { display: "flex" } } },
-	 *   {
-	 *     "children#pricing-hero": {
-	 *       "remove-all-prop": true,
-	 *       props: { px: "1rem", py: "2rem" },
-	 *     },
-	 *   },
-	 * ]
-	 * ```
-	 */
-	mobile?: MobileSchemaConfig;
+	/** Generation 3 phone adaptation. Existing patch arrays remain supported. */
+	mobile?: EngineAdaptiveDeviceConfig;
+	/** Generation 3 tablet adaptation. Falls back to `mobile` when omitted. */
+	tablet?: EngineAdaptiveDeviceConfig;
+	compiler?: EngineCompilerOptions;
+	/** Isolates custom schema-node registrations from the process-global compatibility registry. */
+	registry?: EngineComponentRegistry;
 }
 
 export interface CreateSchemaPageOptions extends CreateOptionsBase {
-	/** The page schema definition */
 	schema: PageSchema;
 }
 
@@ -76,44 +65,32 @@ export type CreateDirectPageOptions = CreateOptionsBase & PageSchema & {
 export interface CreateMarkdownPageOptions extends CreateOptionsBase {
 	schema?: never;
 	root?: never;
-	/** Shorthand page title used as meta.title when meta.title is omitted. */
 	title?: string;
-	/** Shorthand page description used as meta.description when meta.description is omitted. */
 	description?: string;
-	/** Optional full metadata object. Values here take precedence over title/description. */
 	meta?: PageMeta;
-	/** Optional theme applied to the generated markdown page schema. */
 	theme?: EngineThemeConfig;
-	/** Local markdown file path. Supports absolute paths, relative paths, and "@/..." paths. */
 	filePath: string;
-	/** Fallback markdown content used only if filePath cannot be read. */
 	content?: string;
-	/** Props forwarded to the generated markdown node. */
 	markdown?: Omit<MarkdownProps, "content" | "filePath">;
-	/** Props forwarded to the generated section wrapper. */
 	section?: Record<string, unknown>;
 }
 
-export type CreatePageOptions =
-	| CreateSchemaPageOptions
-	| CreateDirectPageOptions
-	| CreateMarkdownPageOptions;
-
-export type CreateComponentOptions = CreateSchemaPageOptions | CreateDirectPageOptions;
+export type CreatePageOptions = CreateSchemaPageOptions | CreateDirectPageOptions | CreateMarkdownPageOptions;
+export type CreateComponentOptions = CreateSchemaPageOptions | CreateDirectPageOptions | CreateCustomComponentOptions<any>;
 
 export interface EngineComponentProps {
 	slots?: Record<string, ReactNode>;
 	children?: ReactNode;
 }
 
-type EnginePageComponent = () => ReactNode | Promise<ReactNode>;
+export type EnginePageComponent = (() => ReactNode | Promise<ReactNode>) & {
+	/** Base, request-independent Generation 3 compiler plan for dev tooling. */
+	enginePlan: EngineCompiledPage;
+};
 
 interface NormalizedCreateOptions extends CreateOptionsBase {
 	schema: PageSchema;
-	mobile?: MobileSchemaConfig;
 }
-
-// ── createPage option normalizer ─────────────────────────────────────────────
 
 function isSchemaOption(options: CreatePageOptions): options is CreateSchemaPageOptions {
 	return "schema" in options && options.schema !== undefined;
@@ -123,34 +100,23 @@ function isDirectSchemaOption(options: CreatePageOptions): options is CreateDire
 	return "root" in options && options.root !== undefined;
 }
 
+function isCustomComponentOption(
+	options: CreateComponentOptions,
+): options is CreateCustomComponentOptions<any> {
+	return "mode" in options && options.mode === "custom";
+}
+
 function normalizeMarkdownPath(filePath: string): string {
 	const cwd = process.cwd().replace(/\\/g, "/").replace(/\/$/, "");
 	const normalizedPath = filePath.replace(/\\/g, "/");
 	const cwdAliasPrefix = `${cwd}/@/`;
-
-	if (normalizedPath.startsWith("@/")) {
-		return `${cwd}/${normalizedPath.slice(2)}`;
-	}
-
-	if (normalizedPath.startsWith(cwdAliasPrefix)) {
-		return `${cwd}/${normalizedPath.slice(cwdAliasPrefix.length)}`;
-	}
-
+	if (normalizedPath.startsWith("@/")) return `${cwd}/${normalizedPath.slice(2)}`;
+	if (normalizedPath.startsWith(cwdAliasPrefix)) return `${cwd}/${normalizedPath.slice(cwdAliasPrefix.length)}`;
 	return filePath;
 }
 
 function createMarkdownSchema(options: CreateMarkdownPageOptions): PageSchema {
-	const {
-		title,
-		description,
-		meta,
-		theme,
-		filePath,
-		content,
-		markdown,
-		section,
-	} = options;
-
+	const { title, description, meta, theme, filePath, content, markdown, section } = options;
 	return {
 		meta: {
 			...(title ? { title } : {}),
@@ -166,248 +132,221 @@ function createMarkdownSchema(options: CreateMarkdownPageOptions): PageSchema {
 				px: { xs: "1.5rem", md: "2rem" },
 				...(section ?? {}),
 			},
-			children: [
-				{
-					type: "markdown",
-					props: {
-						...(markdown ?? {}),
-						...(content ? { content } : {}),
-						filePath,
-					},
+			children: [{
+				type: "markdown",
+				props: {
+					...(markdown ?? {}),
+					...(content ? { content } : {}),
+					filePath,
 				},
-			],
+			}],
 		},
 	};
 }
 
 function normalizeCreateOptions(options: CreatePageOptions): NormalizedCreateOptions {
-	const { config, handlers, slots, mobile } = options;
-
-	if (isSchemaOption(options)) {
-		return { schema: options.schema, config, handlers, slots, mobile };
-	}
-
+	const { config, handlers, slots, mobile, tablet, compiler, registry } = options;
+	if (isSchemaOption(options)) return { schema: options.schema, config, handlers, slots, mobile, tablet, compiler, registry };
 	if (isDirectSchemaOption(options)) {
 		return {
-			schema: {
-				meta: options.meta,
-				theme: options.theme,
-				root: options.root,
-			},
-			config,
-			handlers,
-			slots,
-			mobile,
+			schema: { meta: options.meta, theme: options.theme, root: options.root },
+			config, handlers, slots, mobile, tablet, compiler, registry,
 		};
 	}
-
 	return {
 		schema: createMarkdownSchema(options),
-		config,
-		handlers,
-		slots,
-		mobile,
+		config, handlers, slots, mobile, tablet, compiler, registry,
 	};
 }
 
-// ── Markdown file resolver ───────────────────────────────────────────────────
-
 function nodeHasMarkdownFile(node: SchemaNode): boolean {
-	if (node.type === "markdown" && typeof node.props?.filePath === "string") {
-		return true;
-	}
-
-	return Array.isArray(node.children)
-		? node.children.some(nodeHasMarkdownFile)
-		: false;
+	if (node.type === "markdown" && typeof node.props?.filePath === "string") return true;
+	return Array.isArray(node.children) ? node.children.some(nodeHasMarkdownFile) : false;
 }
 
 async function resolveMarkdownNode(node: SchemaNode): Promise<SchemaNode> {
 	const children = Array.isArray(node.children)
 		? await Promise.all(node.children.map(resolveMarkdownNode))
 		: node.children;
-
-	if (node.type !== "markdown" || typeof node.props?.filePath !== "string") {
-		return { ...node, children };
-	}
-
+	if (node.type !== "markdown" || typeof node.props?.filePath !== "string") return { ...node, children };
 	let content = typeof node.props.content === "string" ? node.props.content : "";
-
 	try {
 		const { readFile } = await import("fs/promises");
 		content = await readFile(normalizeMarkdownPath(node.props.filePath), "utf8");
 	} catch {
-		if (!content) {
-			content = "# Content coming soon\n\nThis page is ready for Markdown content.";
-		}
+		if (!content) content = "# Content coming soon\n\nThis page is ready for Markdown content.";
 	}
-
-	return {
-		...node,
-		props: { ...node.props, content },
-		children,
-	};
+	return { ...node, props: { ...node.props, content }, children };
 }
 
 async function resolveMarkdownFiles(schema: PageSchema): Promise<PageSchema> {
 	if (!nodeHasMarkdownFile(schema.root)) return schema;
-
-	return {
-		...schema,
-		root: await resolveMarkdownNode(schema.root),
-	};
+	return { ...schema, root: await resolveMarkdownNode(schema.root) };
 }
 
-// ── Style injector component ──────────────────────────────────────────────────
-
-function EngineStyles({ collector }: { collector: StyleCollector }) {
-	const css = collector.collect();
-	if (!css) return null;
-
-	// React 19 + Next.js App Router: `precedence` hoists this <style> tag to
-	// <head> so CSS is available before the browser paints any content.
-	// Without this, SSG (Netlify / static export) renders content first and
-	// the CSS vars are undefined → layout collapses until the tag is parsed.
-	//
-	// `href` must be unique per-render so React doesn't deduplicate across
-	// navigations and drop styles. We hash the content for a stable key.
-	//
-	// Note: biome suppression below is intentional — style tag content is
-	// engine-controlled CSS, not user input.
-
-	// biome-ignore lint/security/noDangerouslySetInnerHtml: engine-generated CSS
-	return (
-		<style
-			id="__engine_styles__"
-			precedence="default"
-			dangerouslySetInnerHTML={{ __html: css }}
-		/>
-	);
+function stableThemeHash(value: string): string {
+	let hash = 2166136261;
+	for (let index = 0; index < value.length; index += 1) {
+		hash ^= value.charCodeAt(index);
+		hash = Math.imul(hash, 16777619);
+	}
+	return (hash >>> 0).toString(36);
 }
-
-// ── Theme injector ────────────────────────────────────────────────────────────
 
 function EngineTheme({ schema }: { schema: PageSchema }) {
 	if (!schema.theme) return null;
-
-	const { vars, fonts, globalStyles } = schema.theme;
+	const { vars: declaredVars, fonts, globalStyles, tokens } = schema.theme;
+	const safeFonts = normalizeEngineThemeFontHrefs(fonts);
+	const vars = { ...flattenEngineThemeTokens(tokens), ...normalizeEngineThemeVariables(declaredVars) };
 	let css = "";
-
-	if (vars) {
+	if (Object.keys(vars).length > 0) {
 		const declarations = Object.entries(vars)
-			.map(([k, v]) => `  ${k.startsWith("--") ? k : `--${k}`}: ${v};`)
+			.map(([key, value]) => `  ${key.startsWith("--") ? key : `--${key}`}: ${value};`)
 			.join("\n");
 		css += `:root {\n${declarations}\n}\n`;
 	}
-
-	if (globalStyles) {
-		css += globalStyles;
-	}
+	if (globalStyles) css += globalStyles;
+	const themeHref = css ? `engine-theme-${stableThemeHash(css)}` : "";
 
 	return (
 		<>
-			{fonts?.map((url) => (
-				<link key={url} rel="stylesheet" href={url} />
+			{safeFonts.map((url) => (
+				<link key={url} rel="stylesheet" href={url} precedence="engine-font" />
 			))}
 			{css && (
-				<style id="__engine_theme__" dangerouslySetInnerHTML={{ __html: css }} />
+				<style href={themeHref} precedence="engine-theme">{css}</style>
 			)}
 		</>
 	);
 }
 
-// ── createPage ────────────────────────────────────────────────────────────────
-
 export function createPage(options: CreatePageOptions): EnginePageComponent {
-	const { schema, config, handlers, slots, mobile } = normalizeCreateOptions(options);
-
+	const normalized = normalizeCreateOptions(options);
+	const registry = normalized.registry;
+	const schema = resolveEngineThemeSchema(normalized.schema, registry);
+	const { config, handlers, slots, mobile, tablet, compiler } = normalized;
 	const shouldResolveMarkdown = nodeHasMarkdownFile(schema.root);
-	const hasMobilePatches      = mobile !== undefined && mobile.length > 0;
+	const usesAdaptiveLayout = mobile !== undefined || tablet !== undefined;
+	const hasNamedHandlers = handlers !== undefined && Object.keys(handlers).length > 0;
+	const useServerFirstRenderer = compiler?.serverFirst !== false && !hasNamedHandlers;
+	if (registry && !useServerFirstRenderer) {
+		throw new Error("An explicit EngineComponentRegistry requires the Generation 3 server-first renderer. Keep the registry scoped rather than switching this page to the legacy renderer.");
+	}
+	const basePlan = compilePage(schema, {
+		pageId: compiler?.pageId,
+		strict: compiler?.strict,
+		...(registry ? { customComponentTypes: registry.customComponentTypes() } : {}),
+	});
 
-	function renderPage(resolvedSchema: PageSchema) {
-		// HARD RESOLUTION PREPARATION PHASE (BUG-001):
-		// Must clear styles dynamically per-render request execution path,
-		// never during base startup module resolution phase.
-		clearResolverCache();
-		globalStyleCollector.reset();
+	function renderCompatibility(plan: EngineCompiledPage) {
+		return engineFallbackPlanNeedsCompatibilityCheck(plan.fallbackPlan)
+			? <EngineBrowserUpdateDialog plan={plan.fallbackPlan} />
+			: null;
+	}
 
+	function renderLegacyPage(resolvedSchema: PageSchema, resolvedPlan: EngineCompiledPage) {
 		return (
-			<EngineProvider
-				config={config}
-				handlers={handlers}
-				slots={slots}
-			>
-				<EngineTheme schema={resolvedSchema} />
-				<SchemaRenderer schema={resolvedSchema} />
-				<EngineStyles collector={globalStyleCollector} />
-			</EngineProvider>
+			<EngineScrollProvider>
+				<EngineProvider config={config} handlers={handlers} slots={slots} registry={registry}>
+					<EngineTheme schema={resolvedSchema} />
+					<SchemaRenderer schema={resolvedSchema} />
+					{process.env.NODE_ENV === "development" && <EngineDebugRuntimeMonitor />}
+					<EngineCollectedStyles id="__engine_styles__" />
+					{renderCompatibility(resolvedPlan)}
+				</EngineProvider>
+			</EngineScrollProvider>
 		);
 	}
 
-	// Both markdown resolution and mobile patching are async operations.
-	// If either is needed, the page component must be async.
-	if (shouldResolveMarkdown || hasMobilePatches) {
-		async function EnginePage() {
-			// Step 1 — resolve markdown file content (if any)
-			let resolvedSchema: PageSchema = shouldResolveMarkdown
-				? await resolveMarkdownFiles(schema)
-				: schema;
-
-			// Step 2 — apply mobile patches when the request comes from a mobile UA
-			if (hasMobilePatches) {
-				const device = await getServerDevice();
-				if (device.isMobile || device.isTablet) {
-					resolvedSchema = applyMobilePatches(resolvedSchema, mobile!);
-				}
-			}
-
-			return renderPage(resolvedSchema);
-		}
-
-		EnginePage.displayName = `EnginePage(${schema.meta?.title ?? "unnamed"})`;
-		return EnginePage;
+	function renderPage(resolvedSchema: PageSchema) {
+		const resolvedPlan = resolvedSchema === schema
+			? basePlan
+			: compilePage(resolvedSchema, {
+				pageId: compiler?.pageId,
+				strict: compiler?.strict,
+				...(registry ? { customComponentTypes: registry.customComponentTypes() } : {}),
+			});
+		if (!useServerFirstRenderer) return renderLegacyPage(resolvedSchema, resolvedPlan);
+		return (
+			<>
+				<EngineTheme schema={resolvedSchema} />
+				<EngineServerRenderer schema={resolvedSchema} plan={resolvedPlan} config={config} slots={slots} registry={registry} />
+				{process.env.NODE_ENV === "development" && <EngineDebugRuntimeMonitor />}
+				{renderCompatibility(resolvedPlan)}
+			</>
+		);
 	}
 
-	// Fast path — no async work needed
+	if (shouldResolveMarkdown || usesAdaptiveLayout) {
+		async function EnginePage() {
+			let resolvedSchema: PageSchema = shouldResolveMarkdown ? await resolveMarkdownFiles(schema) : schema;
+			if (usesAdaptiveLayout) {
+				const { getServerDevice } = await import("./core/EngineDeviceServer");
+				const device = await getServerDevice();
+				if (device.isMobile) {
+					resolvedSchema = compileAdaptiveSchema(resolvedSchema, "phone", mobile).schema;
+				} else if (device.isTablet) {
+					resolvedSchema = compileAdaptiveSchema(resolvedSchema, "tablet", tablet ?? mobile).schema;
+				}
+			}
+			return renderPage(resolvedSchema);
+		}
+		EnginePage.displayName = `EnginePage(${schema.meta?.title ?? "unnamed"})`;
+		return Object.assign(EnginePage, { enginePlan: basePlan });
+	}
+
 	function EnginePage() {
 		return renderPage(schema);
 	}
-
 	EnginePage.displayName = `EnginePage(${schema.meta?.title ?? "unnamed"})`;
-	return EnginePage;
+	return Object.assign(EnginePage, { enginePlan: basePlan });
 }
 
-// ── createComponent ──────────────────────────────────────────────────────────
-
-export function createComponent(options: CreateComponentOptions): React.FC<EngineComponentProps> {
-	const { schema, config, handlers, slots } = normalizeCreateOptions(options);
+export function createComponent<P extends object>(options: CreateCustomComponentOptions<P>): EngineCustomReactComponent<P>;
+export function createComponent(options: CreateSchemaPageOptions | CreateDirectPageOptions): React.FC<EngineComponentProps>;
+export function createComponent(options: CreateComponentOptions): React.ComponentType<any> {
+	if (isCustomComponentOption(options)) {
+		return createTrustedEngineComponent(options);
+	}
+	const normalized = normalizeCreateOptions(options);
+	const registry = normalized.registry;
+	const schema = resolveEngineThemeSchema(normalized.schema, registry);
+	const { config, handlers, slots, compiler } = normalized;
+	const hasNamedHandlers = handlers !== undefined && Object.keys(handlers).length > 0;
+	const useServerFirstRenderer = compiler?.serverFirst !== false && !hasNamedHandlers;
+	if (registry && !useServerFirstRenderer) {
+		throw new Error("An explicit EngineComponentRegistry requires the Generation 3 server-first renderer. Keep the registry scoped rather than switching this component to the legacy renderer.");
+	}
+	const basePlan = compilePage(schema, {
+		pageId: compiler?.pageId,
+		strict: compiler?.strict,
+		...(registry ? { customComponentTypes: registry.customComponentTypes() } : {}),
+	});
 
 	function EngineComponent({ children, slots: runtimeSlots }: EngineComponentProps) {
-		// Isolate dynamic styles during runtime child execution threads
-		clearResolverCache();
-		globalStyleCollector.reset();
-
 		const mergedSlots = {
 			...(slots ?? {}),
 			...(runtimeSlots ?? {}),
 			...(children !== undefined ? { children } : {}),
 		};
-
+		if (useServerFirstRenderer) {
+			return (
+				<>
+					<EngineTheme schema={schema} />
+					<EngineServerRenderer schema={schema} plan={basePlan} config={config} slots={mergedSlots} registry={registry} />
+				</>
+			);
+		}
 		return (
-			<EngineProvider
-				config={config}
-				handlers={handlers}
-				slots={mergedSlots}
-			>
+			<EngineProvider config={config} handlers={handlers} slots={mergedSlots} registry={registry}>
 				<EngineTheme schema={schema} />
 				<SchemaRenderer schema={schema} />
-				<EngineStyles collector={globalStyleCollector} />
+				<EngineCollectedStyles />
 			</EngineProvider>
 		);
 	}
-
 	EngineComponent.displayName = `EngineComponent(${schema.meta?.title ?? "unnamed"})`;
-	return EngineComponent;
+	return Object.assign(EngineComponent, { enginePlan: basePlan });
 }
 
 export function defineSchema(schema: PageSchema): PageSchema {

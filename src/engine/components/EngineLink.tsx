@@ -1,31 +1,29 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Engine — EngineLink
-//
-//  Styled anchor primitive. Routing logic (external / page-to-page / native)
-//  lives in EngineNav → renderEngineAnchor — EngineLink delegates entirely.
+// Engine — EngineLink
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { forwardRef, memo, type ReactNode } from "react";
-import { usePropStyles, cpropClass }               from "../hooks/usePropStyles";
-import { useHandler }                              from "../providers/EngineProvider";
-import { renderEngineAnchor }                      from "./EngineNav";
-import type { BaseNodeProps }                      from "../schema/types";
+import { useCpropClass, usePropStyles } from "../hooks/usePropStyles";
+import { useHandler } from "../providers/EngineProvider";
+import { renderEngineAnchor } from "./EngineNav";
+import type { BaseNodeProps } from "../schema/types";
+import type { EngineTransitionInput } from "../core/enginetransitions";
 
 export interface EngineLinkConfig {
-	href?:       string;
-	transition?: "page-to-page" | "instant" | string;
-	styles?:     React.CSSProperties & Record<string, unknown>;
+	href?: string;
+	transition?: EngineTransitionInput;
+	styles?: React.CSSProperties & Record<string, unknown>;
 }
 
 export interface EngineLinkProps extends Omit<BaseNodeProps, "onClick"> {
-	children?:  ReactNode;
-	href?:      string;
-	target?:    string;
-	content?:   string;
-	cprop?:     any;
-	onClick?:   string | React.MouseEventHandler<HTMLAnchorElement>;
+	children?: ReactNode;
+	href?: string;
+	target?: string;
+	content?: string;
+	cprop?: any;
+	onClick?: string | React.MouseEventHandler<HTMLAnchorElement>;
 }
 
 export const EngineLink = memo(
@@ -38,42 +36,42 @@ export const EngineLink = memo(
 			className,
 			onClick,
 			cprop,
+			style,
+			"emd_show-url-icon": showUrlIcon,
+			"emd_url-icon-size": urlIconSize,
 			...restProps
 		} = props;
 
 		const linkConfig: EngineLinkConfig | undefined = cprop?.link;
-
-		// Fallback resolution cascade
 		const targetHref = linkConfig?.href ?? basicHref ?? "#";
-
-		// Style resolution
 		const compiledStyles = {
-			...(cprop?.styles  ?? {}),
+			...(cprop?.styles ?? {}),
 			...(linkConfig?.styles ?? {}),
+			...(style ?? {}),
 		};
 
-		const resolvedStyle = usePropStyles(props as any, compiledStyles);
-		const hoverClass    = cpropClass(cprop);
-		const finalClass    = [resolvedStyle, hoverClass, className].filter(Boolean).join(" ") || undefined;
-
-		// Handler resolution
+		const resolvedStyle = usePropStyles(restProps as any, compiledStyles);
+		const hoverClass = useCpropClass(cprop);
+		const finalClass = [hoverClass, className].filter(Boolean).join(" ") || undefined;
 		const contextHandler = useHandler(typeof onClick === "string" ? onClick : "");
-		const handleClick    = (typeof onClick === "function" || contextHandler)
-			? (e: React.MouseEvent<HTMLAnchorElement>) => {
-				if (typeof onClick === "function") onClick(e);
-				else contextHandler?.(e);
+		const handleClick = (typeof onClick === "function" || contextHandler)
+			? (event: React.MouseEvent<HTMLAnchorElement>) => {
+				if (typeof onClick === "function") onClick(event);
+				else contextHandler?.(event);
 			}
 			: undefined;
 
-		// Delegate entirely to EngineNav's shared routing pipeline
 		return renderEngineAnchor({
-			href:       targetHref,
+			href: targetHref,
 			target,
 			transition: linkConfig?.transition,
-			className:  finalClass,
-			children:   content ?? children,
-			onClick:    handleClick,
+			className: finalClass,
+			style: resolvedStyle,
+			children: content ?? children,
+			onClick: handleClick,
 			ref,
+			"emd_show-url-icon": showUrlIcon,
+			"emd_url-icon-size": urlIconSize,
 		});
 	}),
 );

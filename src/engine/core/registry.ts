@@ -2,73 +2,264 @@
 //  Engine — Component Registry
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { ComponentType } from "react";
+import { lazy, type ComponentType } from "react";
 import type { NodeType } from "../schema/types";
+import { getRegisteredEngineCustomComponentSlots, getRegisteredEngineCustomComponentThemeId, registerEngineCustomComponentMetadata, unregisterEngineCustomComponentMetadata } from "./EngineCustomComponent";
 import {
 	EngineBox, EngineStack, EngineGrid, EngineText, EngineHeading,
 	EngineSection, EngineButton, EngineCard, EngineSpacer, EngineDivider,
 	EngineOption, EngineOptGroup, EngineSlot,
 } from "../components/primitives";
-import { EngineImage }    from "../components/EngineImage";
-import { EngineVideo }    from "../components/EngineVideo";
-import { EngineMarkdown } from "../components/EngineMarkdown";
-import { EngineCanvas }   from "../components/EngineCanvas";
-import { EngineScroll }   from "../components/EngineScroll";
-import { CustomSelect }    from "../components/CustomSelect";
-import { EngineSuspense } from "../components/EngineSuspense";
-import { EngineHero }     from "../components/EngineHero";
-import { EngineForm, EngineInput, EngineTextarea, EngineCheckbox, EngineLabel } from "../components/EngineForms";
-import { EngineLink }                                                       from "../components/EngineLink";
-import { EngineNav }                                                        from "../components/EngineNav";
-import { EngineManim, EngineManim3D }                                       from "../components/EngineManim";
 
 export type EngineComponent = ComponentType<Record<string, unknown> & { children?: React.ReactNode }>;
 export type ComponentRegistry = Map<NodeType, EngineComponent>;
 
-function buildDefaultRegistry(): ComponentRegistry {
-	const r: ComponentRegistry = new Map();
-	r.set("box",           EngineBox as EngineComponent);
-	r.set("stack",         EngineStack as EngineComponent);
-	r.set("grid",          EngineGrid as EngineComponent);
-	r.set("section",       EngineSection as EngineComponent);
-	r.set("hero",          EngineHero as unknown as EngineComponent);
-	r.set("text",          EngineText as EngineComponent);
-	r.set("heading",       EngineHeading as EngineComponent);
-	r.set("markdown",      EngineMarkdown as EngineComponent);
-	r.set("card",          EngineCard as EngineComponent);
-	r.set("image",         EngineImage as unknown as EngineComponent);
-	r.set("video",         EngineVideo as unknown as EngineComponent);
-	r.set("canvas",        EngineCanvas as unknown as EngineComponent);
-	r.set("scroll",        EngineScroll as unknown as EngineComponent);
-	r.set("button",        EngineButton as EngineComponent);
-	r.set("spacer",        EngineSpacer as EngineComponent);
-	r.set("divider",       EngineDivider as EngineComponent);
-	r.set("custom-select", CustomSelect as unknown as EngineComponent);
-	r.set("suspense",      EngineSuspense as unknown as EngineComponent);
-	r.set("slot",          EngineSlot as unknown as EngineComponent);
-	r.set("option",   	  (EngineOption as unknown) as EngineComponent);
-	r.set("optgroup", 	  (EngineOptGroup as unknown) as EngineComponent);
-	r.set("form",          EngineForm as EngineComponent);
-	r.set("input",         EngineInput as EngineComponent);
-	r.set("textarea",      EngineTextarea as EngineComponent);
-	r.set("checkbox",      EngineCheckbox as EngineComponent);
-	r.set("label",         EngineLabel as EngineComponent);
-	r.set("link",          EngineLink   as EngineComponent);
-	r.set("EngineLink",    EngineLink   as EngineComponent);
-	r.set("nav",           EngineNav    as EngineComponent);
-	r.set("EngineNav",     EngineNav    as EngineComponent);
-	r.set("manim",         EngineManim  as unknown as EngineComponent);
-	r.set("EngineManim",   EngineManim  as unknown as EngineComponent);
-	r.set("manim3d",       EngineManim3D as unknown as EngineComponent);
-	r.set("EngineManim3D", EngineManim3D as unknown as EngineComponent);
-	return r;
+const splitComponents = new WeakSet<object>();
+
+// Optional/heavier built-ins are real split points. The loader is not invoked
+// until React actually renders that node, so a primitive-only page does not
+// eagerly evaluate Markdown, Canvas, media, Nav, Forms, Manim, or overlays.
+function lazyEngineComponent(
+	loader: () => Promise<{ default: ComponentType<any> }>,
+): EngineComponent {
+	const component = lazy(loader) as unknown as EngineComponent;
+	splitComponents.add(component as unknown as object);
+	return component;
 }
 
-const _registry: ComponentRegistry = buildDefaultRegistry();
+const LazyEngineHero = lazyEngineComponent(() =>
+	import("../components/EngineHero").then((module) => ({ default: module.EngineHero })),
+);
+const LazyEngineImage = lazyEngineComponent(() =>
+	import("../components/EngineImage").then((module) => ({ default: module.EngineImage })),
+);
+const LazyEngineVideo = lazyEngineComponent(() =>
+	import("../components/EngineVideo").then((module) => ({ default: module.EngineVideo })),
+);
+const LazyEngineMarkdown = lazyEngineComponent(() =>
+	import("../components/EngineMarkdown").then((module) => ({ default: module.EngineMarkdown })),
+);
+const LazyEngineCanvas = lazyEngineComponent(() =>
+	import("../components/EngineCanvas").then((module) => ({ default: module.EngineCanvas })),
+);
+const LazyLegacyEngineScroll = lazyEngineComponent(() =>
+	import("../components/EngineScroll").then((module) => ({ default: module.EngineScroll })),
+);
+const LazyCustomSelect = lazyEngineComponent(() =>
+	import("../components/CustomSelect").then((module) => ({ default: module.CustomSelect })),
+);
+const LazyEngineSuspense = lazyEngineComponent(() =>
+	import("../components/EngineSuspense").then((module) => ({ default: module.EngineSuspense })),
+);
+const LazyEngineForm = lazyEngineComponent(() =>
+	import("../components/EngineForms").then((module) => ({ default: module.EngineForm })),
+);
+const LazyEngineInput = lazyEngineComponent(() =>
+	import("../components/EngineForms").then((module) => ({ default: module.EngineInput })),
+);
+const LazyEngineTextarea = lazyEngineComponent(() =>
+	import("../components/EngineForms").then((module) => ({ default: module.EngineTextarea })),
+);
+const LazyEngineCheckbox = lazyEngineComponent(() =>
+	import("../components/EngineForms").then((module) => ({ default: module.EngineCheckbox })),
+);
+const LazyEngineLabel = lazyEngineComponent(() =>
+	import("../components/EngineForms").then((module) => ({ default: module.EngineLabel })),
+);
+const LazyEngineLink = lazyEngineComponent(() =>
+	import("../components/EngineLink").then((module) => ({ default: module.EngineLink })),
+);
+const LazyEngineNav = lazyEngineComponent(() =>
+	import("../components/EngineNav").then((module) => ({ default: module.EngineNav })),
+);
+const LazyEngineManim = lazyEngineComponent(() =>
+	import("../components/EngineManim/EngineManim").then((module) => ({ default: module.EngineManim })),
+);
+const LazyEngineManim3D = lazyEngineComponent(() =>
+	import("../components/EngineManim/EngineManim3D").then((module) => ({ default: module.EngineManim3D })),
+);
+const LazyEngineDialog = lazyEngineComponent(() =>
+	import("../components/EngineOverlay/EngineDialog").then((module) => ({ default: module.EngineDialog })),
+);
+const LazyEngineDrawer = lazyEngineComponent(() =>
+	import("../components/EngineOverlay/EngineDrawer").then((module) => ({ default: module.EngineDrawer })),
+);
+const LazyEnginePopover = lazyEngineComponent(() =>
+	import("../components/EngineOverlay/EnginePopover").then((module) => ({ default: module.EnginePopover })),
+);
 
-export function registerComponent(type: NodeType, component: EngineComponent): void { _registry.set(type, component); }
-export function unregisterComponent(type: NodeType): void { _registry.delete(type); }
-export function getComponent(type: NodeType): EngineComponent | undefined { return _registry.get(type); }
-export function hasComponent(type: NodeType): boolean { return _registry.has(type); }
-export function registeredTypes(): NodeType[] { return [..._registry.keys()]; }
-export function getRegistry(): ComponentRegistry { return _registry; }
+function buildDefaultRegistry(): ComponentRegistry {
+	const registry: ComponentRegistry = new Map();
+	registry.set("box",           EngineBox as EngineComponent);
+	registry.set("stack",         EngineStack as EngineComponent);
+	registry.set("grid",          EngineGrid as EngineComponent);
+	registry.set("section",       EngineSection as EngineComponent);
+	registry.set("hero",          LazyEngineHero);
+	registry.set("text",          EngineText as EngineComponent);
+	registry.set("heading",       EngineHeading as EngineComponent);
+	registry.set("markdown",      LazyEngineMarkdown);
+	registry.set("card",          EngineCard as EngineComponent);
+	registry.set("image",         LazyEngineImage);
+	registry.set("video",         LazyEngineVideo);
+	registry.set("canvas",        LazyEngineCanvas);
+	registry.set("scroll",        LazyLegacyEngineScroll);
+	registry.set("button",        EngineButton as EngineComponent);
+	registry.set("spacer",        EngineSpacer as EngineComponent);
+	registry.set("divider",       EngineDivider as EngineComponent);
+	registry.set("custom-select", LazyCustomSelect);
+	registry.set("suspense",      LazyEngineSuspense);
+	registry.set("slot",          EngineSlot as unknown as EngineComponent);
+	registry.set("option",        EngineOption as unknown as EngineComponent);
+	registry.set("optgroup",      EngineOptGroup as unknown as EngineComponent);
+	registry.set("form",          LazyEngineForm);
+	registry.set("input",         LazyEngineInput);
+	registry.set("textarea",      LazyEngineTextarea);
+	registry.set("checkbox",      LazyEngineCheckbox);
+	registry.set("label",         LazyEngineLabel);
+	registry.set("link",          LazyEngineLink);
+	registry.set("EngineLink",    LazyEngineLink);
+	registry.set("nav",           LazyEngineNav);
+	registry.set("EngineNav",     LazyEngineNav);
+	registry.set("manim",         LazyEngineManim);
+	registry.set("EngineManim",   LazyEngineManim);
+	registry.set("manim3d",       LazyEngineManim3D);
+	registry.set("EngineManim3D", LazyEngineManim3D);
+	registry.set("dialog",        LazyEngineDialog);
+	registry.set("EngineDialog",  LazyEngineDialog);
+	registry.set("drawer",        LazyEngineDrawer);
+	registry.set("EngineDrawer",  LazyEngineDrawer);
+	registry.set("popover",       LazyEnginePopover);
+	registry.set("EnginePopover", LazyEnginePopover);
+	return registry;
+}
+
+const _builtinRegistry: ComponentRegistry = buildDefaultRegistry();
+const _registry: ComponentRegistry = new Map(_builtinRegistry);
+const BUILTIN_COMPONENT_TYPES = new Set<NodeType>(_builtinRegistry.keys());
+
+/**
+ * Application-owned component registry. Each instance reuses the built-in
+ * definitions but owns its custom registrations and metadata independently.
+ */
+export class EngineComponentRegistry {
+	private readonly components: ComponentRegistry;
+	private readonly builtInTypes: ReadonlySet<NodeType>;
+
+	constructor() {
+		this.components = new Map(_builtinRegistry);
+		this.builtInTypes = BUILTIN_COMPONENT_TYPES;
+	}
+
+	registerComponent<P extends object>(type: NodeType, component: ComponentType<P>): void {
+		if (typeof type !== "string" || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(type)
+			|| type === "__proto__" || type === "prototype" || type === "constructor") {
+			throw new TypeError("Custom component type must be a single safe schema-node identifier.");
+		}
+		if (this.builtInTypes.has(type)) {
+			throw new Error("Cannot replace built-in Engine component type '" + type + "'. Choose a new application-owned type ID.");
+		}
+		const metadata = component as unknown as {
+			engineCustomComponentId?: unknown;
+			engineCustomSlots?: unknown;
+			engineCustomThemeId?: unknown;
+		};
+		if (typeof metadata.engineCustomComponentId === "string" && metadata.engineCustomComponentId !== type) {
+			throw new Error("Custom component ID '" + metadata.engineCustomComponentId + "' does not match registry type '" + type + "'.");
+		}
+		this.components.set(type, component as unknown as EngineComponent);
+	}
+
+	unregisterComponent(type: NodeType): void {
+		if (this.builtInTypes.has(type)) throw new Error("Cannot unregister built-in Engine component type '" + type + "'.");
+		this.components.delete(type);
+	}
+
+	getComponent(type: NodeType): EngineComponent | undefined { return this.components.get(type); }
+	isBuiltInComponentType(type: NodeType): boolean { return this.builtInTypes.has(type); }
+	isCustomComponentType(type: NodeType): boolean { return this.components.has(type) && !this.builtInTypes.has(type); }
+	hasComponent(type: NodeType): boolean { return this.components.has(type); }
+	registeredTypes(): NodeType[] { return [...this.components.keys()]; }
+	customComponentTypes(): NodeType[] { return [...this.components.keys()].filter((type) => !this.builtInTypes.has(type)); }
+
+	getComponentThemeSlots(type: NodeType): readonly string[] {
+		if (this.builtInTypes.has(type)) return [];
+		const metadata = this.components.get(type) as unknown as { engineCustomSlots?: unknown } | undefined;
+		return Array.isArray(metadata?.engineCustomSlots)
+			? metadata.engineCustomSlots.filter((slot): slot is string => typeof slot === "string")
+			: [];
+	}
+
+	getComponentThemeId(type: NodeType): string | undefined {
+		if (this.builtInTypes.has(type)) return undefined;
+		const metadata = this.components.get(type) as unknown as { engineCustomThemeId?: unknown } | undefined;
+		return typeof metadata?.engineCustomThemeId === "string" ? metadata.engineCustomThemeId : undefined;
+	}
+}
+
+export function createEngineComponentRegistry(): EngineComponentRegistry {
+	return new EngineComponentRegistry();
+}
+
+export function registerComponent<P extends object>(type: NodeType, component: ComponentType<P>): void {
+	if (typeof type !== "string" || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(type)
+		|| type === "__proto__" || type === "prototype" || type === "constructor") {
+		throw new TypeError("Custom component type must be a single safe schema-node identifier.");
+	}
+	if (BUILTIN_COMPONENT_TYPES.has(type)) {
+		throw new Error("Cannot replace built-in Engine component type '" + type + "'. Choose a new application-owned type ID.");
+	}
+	const declaredId = (component as unknown as { engineCustomComponentId?: unknown }).engineCustomComponentId;
+	if (typeof declaredId === "string" && declaredId !== type) {
+		throw new Error("Custom component ID '" + declaredId + "' does not match registry type '" + type + "'.");
+	}
+	registerEngineCustomComponentMetadata(type, component);
+	_registry.set(type, component as unknown as EngineComponent);
+}
+
+export function unregisterComponent(type: NodeType): void {
+	if (BUILTIN_COMPONENT_TYPES.has(type)) {
+		throw new Error("Cannot unregister built-in Engine component type '" + type + "'.");
+	}
+	_registry.delete(type);
+	unregisterEngineCustomComponentMetadata(type);
+}
+
+export function getComponent(type: NodeType, registry?: EngineComponentRegistry): EngineComponent | undefined {
+	return registry ? registry.getComponent(type) : _registry.get(type);
+}
+
+export function isBuiltInComponentType(type: NodeType, registry?: EngineComponentRegistry): boolean {
+	return registry ? registry.isBuiltInComponentType(type) : BUILTIN_COMPONENT_TYPES.has(type);
+}
+
+export function isCustomComponentType(type: NodeType, registry?: EngineComponentRegistry): boolean {
+	return registry ? registry.isCustomComponentType(type) : _registry.has(type) && !BUILTIN_COMPONENT_TYPES.has(type);
+}
+
+export function getComponentThemeSlots(type: NodeType, registry?: EngineComponentRegistry): readonly string[] {
+	if (registry) return registry.getComponentThemeSlots(type);
+	if (BUILTIN_COMPONENT_TYPES.has(type)) return [];
+	return getRegisteredEngineCustomComponentSlots(type);
+}
+
+export function getComponentThemeId(type: NodeType, registry?: EngineComponentRegistry): string | undefined {
+	if (registry) return registry.getComponentThemeId(type);
+	if (BUILTIN_COMPONENT_TYPES.has(type)) return undefined;
+	return getRegisteredEngineCustomComponentThemeId(type);
+}
+
+export function isSplitComponent(component: EngineComponent): boolean {
+	return splitComponents.has(component as unknown as object);
+}
+
+export function hasComponent(type: NodeType, registry?: EngineComponentRegistry): boolean {
+	return registry ? registry.hasComponent(type) : _registry.has(type);
+}
+
+export function registeredTypes(registry?: EngineComponentRegistry): NodeType[] {
+	return registry ? registry.registeredTypes() : [..._registry.keys()];
+}
+
+export function getRegistry(): ComponentRegistry {
+	return _registry;
+}

@@ -1,191 +1,127 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//	Engine — StyleCollector
+// Engine — StyleCollector
 //
-//	Collects all CSS blocks emitted during a render pass, deduplicates them
-//	via hash, and outputs a single optimised CSS string for the page <style> tag.
-//
-//	PRODUCTION FIX (BUG-001):
-//		Eliminates tier mutation leakage across server compiles. Dynamic styles
-//		are cleanly aggregated per render pass, preventing missing layout properties.
-//
-//	CLASS SWAPPING SECURITY (BUG-002):
-//		Deduplication relies entirely on cryptographic-style unique property content 
-//		hashes, making class bindings independent of rendering execution order.
+// Provider-scoped generated CSS with deterministic serialization. Render-time
+// registration is still intentionally cheap, while client subscribers are
+// notified after the render stack so new dynamic rules can be flushed safely.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React from "react";
 
-// ── Registry boundaries ──────────────────────────────────────────────────────
+const explicitGlobalStyles = new Set<string>();
 
-const MAX_REGISTRY_SIZE = 3000;	// max unique CSS blocks stored cross-render
-const EVICT_COUNT = 500;		// how many to evict when cap is hit
+type StyleCollectorSubscriber = () => void;
 
-// ── Cross-render registry types ──────────────────────────────────────────────
-
-interface CrossRenderEntry {
-	cssBlock: string;
-	isExplicitGlobal: boolean;
+function stylePriority(cssBlock: string): number {
+	const trimmed = cssBlock.trimStart();
+	if (trimmed.startsWith(":root") || (trimmed.startsWith("@media") && trimmed.includes(":root"))) return 0;
+	if (trimmed.startsWith("@font-face") || trimmed.startsWith("@keyframes")) return 1;
+	return 2;
 }
 
-const _crossRenderRegistry = new Map<string, CrossRenderEntry>();
-
-// ── Short deterministic hash ─────────────────────────────────────────────────
-
-function _calculateStyleHash(sourceStyleString: string): string {
-	let hashingBuffer = 0;
-	for (let characterIndex = 0; characterIndex < sourceStyleString.length; characterIndex++) {
-		hashingBuffer = (Math.imul(31, hashingBuffer) + sourceStyleString.charCodeAt(characterIndex)) | 0;
-	}
-	return Math.abs(hashingBuffer).toString(36).slice(0, 7);
+function canonicalize(cssBlocks: Iterable<string>): string {
+	return [...cssBlocks]
+		.sort((left, right) => {
+			const priorityDifference = stylePriority(left) - stylePriority(right);
+			return priorityDifference !== 0 ? priorityDifference : left.localeCompare(right);
+		})
+		.join("\n");
 }
-
-// ── Evict oldest entries when registry limits are hit ────────────────────────
-
-function _manageRegistryCapacity(): void {
-	if (_crossRenderRegistry.size < MAX_REGISTRY_SIZE) return;
-	let evictionCounter = 0;
-	for (const [registryKey, registryEntry] of _crossRenderRegistry) {
-		if (evictionCounter >= EVICT_COUNT) break;
-		if (!registryEntry.isExplicitGlobal) {
-			_crossRenderRegistry.delete(registryKey);
-			evictionCounter++;
-		}
-	}
-}
-
-// ── StyleCollector class ──────────────────────────────────────────────────────
 
 export class StyleCollector {
-	// Active page render assets — isolated per request lifecycle
-	private _explicitGlobalStyles = new Map<string, string>();
-	private _activeRenderStyles = new Map<string, string>();
-	private _orderedTrackingKeys: string[] = [];
-	private _seenTrackingKeys = new Set<string>();
+	private _styles = new Set<string>();
+	private _subscribers = new Set<StyleCollectorSubscriber>();
+	private _notifyTimer: ReturnType<typeof setTimeout> | null = null;
 
-	// ── Add a CSS block ───────────────────────────────────────────────────────
+	private scheduleNotify(): void {
+		if (this._subscribers.size === 0 || this._notifyTimer !== null) return;
+		this._notifyTimer = setTimeout(() => {
+			this._notifyTimer = null;
+			for (const subscriber of [...this._subscribers]) subscriber();
+		}, 0);
+	}
 
 	add(cssBlock: string): void {
-		if (!cssBlock) return;
-		const styleHashKey = _calculateStyleHash(cssBlock);
-		const existingRegistryEntry = _crossRenderRegistry.get(styleHashKey);
-
-		if (!existingRegistryEntry) {
-			_manageRegistryCapacity();
-			_crossRenderRegistry.set(styleHashKey, {
-				cssBlock: cssBlock,
-				isExplicitGlobal: false
-			});
-		}
-
-		// Ensure layout blocks stay assigned to the active rendering loop
-		if (!this._explicitGlobalStyles.has(styleHashKey)) {
-			this._activeRenderStyles.set(styleHashKey, cssBlock);
-		}
-
-		if (!this._seenTrackingKeys.has(styleHashKey)) {
-			this._seenTrackingKeys.add(styleHashKey);
-			this._orderedTrackingKeys.push(styleHashKey);
-		}
+		if (!cssBlock || this._styles.has(cssBlock)) return;
+		this._styles.add(cssBlock);
+		this.scheduleNotify();
 	}
 
 	addGlobal(cssBlock: string): void {
 		if (!cssBlock) return;
-		const styleHashKey = _calculateStyleHash(cssBlock);
-
-		_crossRenderRegistry.set(styleHashKey, {
-			cssBlock: cssBlock,
-			isExplicitGlobal: true
-		});
-
-		this._explicitGlobalStyles.set(styleHashKey, cssBlock);
-		this._activeRenderStyles.delete(styleHashKey);
-
-		if (!this._seenTrackingKeys.has(styleHashKey)) {
-			this._seenTrackingKeys.add(styleHashKey);
-			this._orderedTrackingKeys.push(styleHashKey);
-		}
+		explicitGlobalStyles.add(cssBlock);
+		this.add(cssBlock);
 	}
 
 	addMany(cssBlocks: string[]): void {
-		for (const individualBlock of cssBlocks) {
-			this.add(individualBlock);
+		let changed = false;
+		for (const cssBlock of cssBlocks) {
+			if (!cssBlock || this._styles.has(cssBlock)) continue;
+			this._styles.add(cssBlock);
+			changed = true;
 		}
+		if (changed) this.scheduleNotify();
 	}
 
-	// ── Collect — insertion order, clean execution output ────────────────────
-
 	collect(): string {
-		const collectedStyleSegments: string[] = [];
-		for (const evaluationKey of this._orderedTrackingKeys) {
-			const activeCssContent = this._explicitGlobalStyles.get(evaluationKey) ?? this._activeRenderStyles.get(evaluationKey);
-			if (activeCssContent) {
-				collectedStyleSegments.push(activeCssContent);
-			}
-		}
-		return collectedStyleSegments.join("\n");
+		return canonicalize(this._styles);
+	}
+
+	subscribe(subscriber: StyleCollectorSubscriber): () => void {
+		this._subscribers.add(subscriber);
+		return () => {
+			this._subscribers.delete(subscriber);
+		};
 	}
 
 	reset(): void {
-		this._explicitGlobalStyles.clear();
-		this._activeRenderStyles.clear();
-		this._orderedTrackingKeys = [];
-		this._seenTrackingKeys.clear();
+		if (this._styles.size === 0) return;
+		this._styles.clear();
+		this.scheduleNotify();
 	}
 
 	get size(): number {
-		return this._seenTrackingKeys.size;
+		return this._styles.size;
 	}
 
-	// ── Static layout helpers ──────────────────────────────────────────────────
-
 	static getRegistryGlobalCSS(): string {
-		const aggregateGlobalSegments: string[] = [];
-		for (const [, registryEntry] of _crossRenderRegistry) {
-			if (registryEntry.isExplicitGlobal) {
-				aggregateGlobalSegments.push(registryEntry.cssBlock);
-			}
-		}
-		return aggregateGlobalSegments.join("\n");
+		return canonicalize(explicitGlobalStyles);
 	}
 
 	static _resetRegistry(): void {
-		_crossRenderRegistry.clear();
+		explicitGlobalStyles.clear();
 	}
 
 	static registrySize(): number {
-		return _crossRenderRegistry.size;
+		return explicitGlobalStyles.size;
 	}
 }
 
-// ── Singleton Instance ────────────────────────────────────────────────────────
-
+// Compatibility fallback for low-level helpers called outside EngineProvider.
 export const globalStyleCollector = new StyleCollector();
 
-// ── HMR Cleanup Phase (BUG-003: Hot Reload CSS Pollution) ───────────────────
-
 if (
-	typeof module !== "undefined" &&
-	process.env.NODE_ENV !== "production" &&
-	(module as any).hot
+	typeof module !== "undefined"
+	&& process.env.NODE_ENV !== "production"
+	&& (module as any).hot
 ) {
 	(module as any).hot.dispose(() => {
 		if (typeof document !== "undefined") {
-			const targetStyleSheetElement = document.getElementById("__engine_styles__");
-			if (targetStyleSheetElement) {
-				targetStyleSheetElement.textContent = "";
-			}
+			document.querySelectorAll("style[data-engine-generated='true']").forEach((element) => {
+				element.textContent = "";
+			});
 		}
 		StyleCollector._resetRegistry();
 	});
 }
-
-// ── EngineGlobalStyles Element Emitter ────────────────────────────────────────
 
 export function EngineGlobalStyles(): React.ReactElement | null {
 	const compiledGlobalCssContent = StyleCollector.getRegistryGlobalCSS();
 	if (!compiledGlobalCssContent) return null;
 	return React.createElement("style", {
 		id: "eng-global",
+		"data-engine-generated": "true",
+		suppressHydrationWarning: true,
 		dangerouslySetInnerHTML: { __html: compiledGlobalCssContent },
 	});
 }
