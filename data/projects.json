@@ -20,7 +20,10 @@
 			"badge": "Rust",
 			"rebaseNotice": null,
 			"description": "Rust Backend Engine with REL (Runtime Engine Language), RELC compiler, immutable Runtime Images, Service Mother, and Container isolation.",
-			"tracks": ["docs", "guides"],
+			"tracks": [
+				"docs",
+				"guides"
+			],
 			"docsPaths": [
 				"doc",
 				"project-package/README.md",
@@ -31,7 +34,9 @@
 				"engine/README.md",
 				"sdk/SDK-PARITY.md"
 			],
-			"excludePaths": ["docs"],
+			"excludePaths": [
+				"docs"
+			],
 			"guidesPaths": [
 				"doc/linux-builds.md",
 				"doc/binary-updates.md",
@@ -53,7 +58,8 @@
 				"install-executor": "Packages & Install",
 				"vault": "Security & Vault",
 				"engine": "Core Architecture"
-			}
+			},
+			"accentColor": "#f07842"
 		},
 		{
 			"id": "nextjs-engine",
@@ -69,10 +75,23 @@
 			"badge": "Rebase",
 			"rebaseNotice": "WARNING: Next.js Engine documentation is incomplete and currently undergoing a full Generation 3 rebase. Pages may be outdated or missing newer subsystems (such as EngineScroll). Verify behavior directly against the repository source.",
 			"description": "Schema-driven compiler and runtime for React 19 and Next.js 16 with server-first execution plans, client islands, and EngineScroll.",
-			"tracks": ["docs", "guides"],
-			"docsPaths": ["docs/3", "README.md"],
-			"excludePaths": ["docs/engine-components", "docs/release", "docs/gen3"],
-			"guidesPaths": ["docs/3/guides", "guides"],
+			"tracks": [
+				"docs",
+				"guides"
+			],
+			"docsPaths": [
+				"docs/3",
+				"README.md"
+			],
+			"excludePaths": [
+				"docs/engine-components",
+				"docs/release",
+				"docs/gen3"
+			],
+			"guidesPaths": [
+				"docs/3/guides",
+				"guides"
+			],
 			"sectionMap": {
 				"docs/3": "Generation 3 Overview",
 				"docs/3/guides": "Guides",
@@ -87,7 +106,8 @@
 				"docs/3/configuration": "Configuration",
 				"docs/3/integrations": "Integrations",
 				"docs/3/error-codes": "Error Codes"
-			}
+			},
+			"accentColor": "#38bdf8"
 		},
 		{
 			"id": "packagex",
@@ -103,11 +123,21 @@
 			"badge": "NOT_EST",
 			"rebaseNotice": null,
 			"description": "Cross-OS Rust installer assembly engine, white-label runtime, and packaging core.",
-			"tracks": ["docs", "guides"],
-			"docsPaths": ["doc", "docs", "README.md"],
+			"tracks": [
+				"docs",
+				"guides"
+			],
+			"docsPaths": [
+				"doc",
+				"docs",
+				"README.md"
+			],
 			"excludePaths": [],
-			"guidesPaths": ["guides"],
-			"sectionMap": {}
+			"guidesPaths": [
+				"guides"
+			],
+			"sectionMap": {},
+			"accentColor": "#a78bfa"
 		},
 		{
 			"id": "packx",
@@ -123,11 +153,21 @@
 			"badge": "NOT_EST",
 			"rebaseNotice": null,
 			"description": "Thin CLI and shim router for building, signing, testing, and verifying PackageX assemblies.",
-			"tracks": ["docs", "guides"],
-			"docsPaths": ["doc", "docs", "README.md"],
+			"tracks": [
+				"docs",
+				"guides"
+			],
+			"docsPaths": [
+				"doc",
+				"docs",
+				"README.md"
+			],
 			"excludePaths": [],
-			"guidesPaths": ["guides"],
-			"sectionMap": {}
+			"guidesPaths": [
+				"guides"
+			],
+			"sectionMap": {},
+			"accentColor": "#5bd6a2"
 		},
 		{
 			"id": "packagex-sdks",
@@ -143,11 +183,19 @@
 			"badge": "NOT_EST",
 			"rebaseNotice": null,
 			"description": "Authoring guides and protocol specifications for teams building self-reserved SDKs on top of PackageX.",
-			"tracks": ["docs", "guides"],
-			"docsPaths": ["docs/sdks"],
+			"tracks": [
+				"docs",
+				"guides"
+			],
+			"docsPaths": [
+				"docs/sdks"
+			],
 			"excludePaths": [],
-			"guidesPaths": ["guides/sdks"],
-			"sectionMap": {}
+			"guidesPaths": [
+				"guides/sdks"
+			],
+			"sectionMap": {},
+			"accentColor": "#c084fc"
 		},
 		{
 			"id": "kastricks-utility",
@@ -163,11 +211,21 @@
 			"badge": "NOT_EST",
 			"rebaseNotice": null,
 			"description": "Standalone Blender 4.2+ creator toolkit, optimizer, and zero-SDK Mod Host with separate Guides and Modding Docs.",
-			"tracks": ["guides", "docs"],
-			"docsPaths": ["doc", "docs", "README.md"],
+			"tracks": [
+				"guides",
+				"docs"
+			],
+			"docsPaths": [
+				"doc",
+				"docs",
+				"README.md"
+			],
 			"excludePaths": [],
-			"guidesPaths": ["guides"],
-			"sectionMap": {}
+			"guidesPaths": [
+				"guides"
+			],
+			"sectionMap": {},
+			"accentColor": "#e7a646"
 		}
 	]
 }
