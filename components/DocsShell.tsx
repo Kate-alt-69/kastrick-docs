@@ -247,7 +247,7 @@ export default function DocsShell({
 						break;
 					}
 				}
-				const nextHeading = currentHeading || headings[0].id;
+				const nextHeading = currentHeading;
 				setActiveTocId((current) => current === nextHeading ? current : nextHeading);
 			} else {
 				setActiveTocId("");
@@ -382,7 +382,7 @@ export default function DocsShell({
 
 	const pageReadingStats = useMemo(() => {
 		const wordCount = rawMarkdown.trim()
-			? rawMarkdown.trim().split(/\\s+/).filter(Boolean).length
+			? rawMarkdown.trim().split(/\s+/).filter(Boolean).length
 			: 0;
 		return {
 			wordCount,
