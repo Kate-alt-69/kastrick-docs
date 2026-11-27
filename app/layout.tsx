@@ -33,7 +33,9 @@ export default function RootLayout({
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<body suppressHydrationWarning>
-				<NavigationProgress />
+				<React.Suspense fallback={null}>
+					<NavigationProgress />
+				</React.Suspense>
 				{children}
 				<SpeedInsights />
 			</body>
