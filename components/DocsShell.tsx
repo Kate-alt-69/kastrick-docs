@@ -48,6 +48,47 @@ interface NotebookItem {
 	createdAt?: number;
 }
 
+interface DocsSearchEntry {
+	projectId: string;
+	projectName: string;
+	track: DocTrack;
+	slug: string;
+	title: string;
+	section: string;
+	text: string;
+}
+
+interface DocsSearchResult extends DocsSearchEntry {
+	score: number;
+	snippet: string;
+}
+
+function isDocsSearchEntry(value: unknown): value is DocsSearchEntry {
+	if (!value || typeof value !== "object") return false;
+	const item = value as Partial<DocsSearchEntry>;
+	return typeof item.projectId === "string" &&
+		typeof item.projectName === "string" &&
+		(item.track === "docs" || item.track === "guides") &&
+		typeof item.slug === "string" &&
+		typeof item.title === "string" &&
+		typeof item.section === "string" &&
+		typeof item.text === "string";
+}
+
+function getSearchSnippet(text: string, tokens: string): string {
+	const terms = tokens.split(/\s+/).filter(Boolean);
+	const lower = text.toLowerCase();
+	const positions = terms
+		.map((term) => lower.indexOf(term.toLowerCase()))
+		.filter((position) => position >= 0);
+	if (!positions.length) return text.slice(0, 180);
+	const first = Math.min(...positions);
+	const start = Math.max(0, first - 76);
+	const end = Math.min(text.length, start + 190);
+	return (start > 0 ? "…" : "") + text.slice(start, end).trim() + (end < text.length ? "…" : "");
+}
+
+
 function isNotebookItem(value: unknown): value is NotebookItem {
 	if (!value || typeof value !== "object") return false;
 	const item = value as Partial<NotebookItem>;
@@ -140,6 +181,15 @@ export default function DocsShell({
 	const [projectsOpen, setProjectsOpen] = useState(false);
 	const [pagesOpen, setPagesOpen] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
+	const [searchPinned, setSearchPinned] = useState(false);
+	const [searchScope, setSearchScope] = useState<"project" | "all">("project");
+	const [searchIndex, setSearchIndex] = useState<DocsSearchEntry[]>([]);
+	const [loadedSearchProjects, setLoadedSearchProjects] = useState<string[]>([]);
+	const [searchLoading, setSearchLoading] = useState(false);
+	const [searchError, setSearchError] = useState("");
+	const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
+	const [searchLoadNonce, setSearchLoadNonce] = useState(0);
+	const [highlightTerm, setHighlightTerm] = useState("");
 	const [bookmarksOpen, setBookmarksOpen] = useState(false);
 	const [notebookOpen, setNotebookOpen] = useState(false);
 	const [shareOpen, setShareOpen] = useState(false);
@@ -168,11 +218,147 @@ export default function DocsShell({
 	const dropdownRef = useRef<HTMLDivElement | null>(null);
 	const mobileNavRef = useRef<HTMLElement | null>(null);
 	const articleRef = useRef<HTMLElement | null>(null);
+	const searchInputRef = useRef<HTMLInputElement | null>(null);
+	const searchPanelRef = useRef<HTMLDivElement | null>(null);
 
 	const notify = (msg: string) => {
 		setToast(msg);
 		setTimeout(() => setToast(null), 2000);
 	};
+
+	const openSearch = () => {
+		setSearchOpen(true);
+		window.requestAnimationFrame(() => searchInputRef.current?.focus());
+	};
+
+	const closeSearch = () => {
+		setSearchOpen(false);
+		setSearchPinned(false);
+		try {
+			sessionStorage.removeItem("kastrick-docs-search-pinned");
+			sessionStorage.removeItem("kastrick-docs-search-query");
+		} catch {
+			// Search remains usable when session storage is unavailable.
+		}
+	};
+
+	const toggleSearchPin = () => {
+		setSearchPinned((current) => {
+			const next = !current;
+			try {
+				if (next) {
+					sessionStorage.setItem("kastrick-docs-search-pinned", "1");
+					sessionStorage.setItem("kastrick-docs-search-query", query);
+				} else {
+					sessionStorage.removeItem("kastrick-docs-search-pinned");
+					sessionStorage.removeItem("kastrick-docs-search-query");
+				}
+			} catch {
+				// Pinning still works for the current page without session storage.
+			}
+			return next;
+		});
+	};
+
+	const openSearchResult = (result: DocsSearchResult) => {
+		const term = query.trim();
+		if (!term) return;
+		setHighlightTerm(term);
+		if (searchPinned) {
+			try {
+				sessionStorage.setItem("kastrick-docs-search-pinned", "1");
+				sessionStorage.setItem("kastrick-docs-search-query", term);
+			} catch {
+				// The search panel remains pinned for the current render.
+			}
+		} else {
+			setSearchOpen(false);
+		}
+		router.push(
+			"/" + result.projectId + "/" + result.slug + "?kd-find=" + encodeURIComponent(term),
+		);
+	};
+
+
+	useEffect(() => {
+		try {
+			if (sessionStorage.getItem("kastrick-docs-search-pinned") === "1") {
+				setSearchPinned(true);
+				setSearchOpen(true);
+				setQuery(sessionStorage.getItem("kastrick-docs-search-query") ?? "");
+			}
+		} catch {
+			// Search works without persisted panel state.
+		}
+	}, []);
+
+	useEffect(() => {
+		if (!searchPinned) return;
+		try {
+			sessionStorage.setItem("kastrick-docs-search-query", query);
+		} catch {
+			// The current search query remains in React state.
+		}
+	}, [searchPinned, query]);
+
+	useEffect(() => {
+		if (!searchOpen) return;
+		const targetIds = searchScope === "project"
+			? [project.id]
+			: manifest.projects.filter((item) => item.pages.length > 0).map((item) => item.id);
+		const missingIds = targetIds.filter((id) => !loadedSearchProjects.includes(id));
+		if (!missingIds.length) return;
+
+		let cancelled = false;
+		setSearchLoading(true);
+		setSearchError("");
+		Promise.all(missingIds.map(async (id) => {
+			const response = await fetch("/docs-search-index/" + encodeURIComponent(id) + ".json", {
+				cache: "force-cache",
+			});
+			if (!response.ok) throw new Error("Search index unavailable for " + id + ".");
+			const payload: unknown = await response.json();
+			if (!payload || typeof payload !== "object" || !("pages" in payload) || !Array.isArray(payload.pages)) {
+				throw new Error("Search index for " + id + " has an invalid format.");
+			}
+			return payload.pages.filter(isDocsSearchEntry) as DocsSearchEntry[];
+		})).then((loaded) => {
+			if (cancelled) return;
+			setSearchIndex((current) => {
+				const seen = new Set(current.map((item) => item.projectId + "/" + item.track + "/" + item.slug));
+				return [
+					...current,
+					...loaded.flat().filter((item) => {
+						const key = item.projectId + "/" + item.track + "/" + item.slug;
+						if (seen.has(key)) return false;
+						seen.add(key);
+						return true;
+					}),
+				];
+			});
+			setLoadedSearchProjects((current) => [...new Set([...current, ...missingIds])]);
+		}).catch((error: unknown) => {
+			if (!cancelled) {
+				setSearchError(error instanceof Error ? error.message : "Could not load the documentation search index.");
+			}
+		}).finally(() => {
+			if (!cancelled) setSearchLoading(false);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [searchOpen, searchScope, project.id, manifest.projects, loadedSearchProjects, searchLoadNonce]);
+
+	useEffect(() => {
+		if (!searchOpen || searchPinned) return;
+		const onOutside = (event: PointerEvent) => {
+			if (searchPanelRef.current && !searchPanelRef.current.contains(event.target as Node)) {
+				setSearchOpen(false);
+			}
+		};
+		document.addEventListener("pointerdown", onOutside);
+		return () => document.removeEventListener("pointerdown", onOutside);
+	}, [searchOpen, searchPinned]);
 
 	// Dismiss the compact mobile navigation when the user taps outside it.
 	useEffect(() => {
@@ -293,6 +479,84 @@ export default function DocsShell({
 		};
 	}, [page?.slug]);
 
+
+	useEffect(() => {
+		const params = new URLSearchParams(window.location.search);
+		const term = highlightTerm.trim() || (params.get("kd-find") ?? "").trim();
+		const article = articleRef.current;
+		if (!term || !article) return;
+
+		const tokens = [...new Set(term.split(/\s+/).filter(Boolean))]
+			.sort((a, b) => b.length - a.length);
+		if (!tokens.length) return;
+		const pattern = new RegExp("(" + tokens.map((token) =>
+			token.replace(/[.*+?^\x24{}()|[\]\\]/g, "\\	// Listen for Ctrl/Cmd+K, Escape, and EngineScroll #-es hash navigation.
+")
+		).join("|") + ")", "gi");
+		const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+		const textNodes: Text[] = [];
+		let current: Node | null;
+		while ((current = walker.nextNode())) {
+			const parent = current.parentElement;
+			if (!parent || parent.closest("script, style, textarea, button, .kd-search-skip")) continue;
+			if (current.nodeValue && pattern.test(current.nodeValue)) {
+				pattern.lastIndex = 0;
+				textNodes.push(current as Text);
+			} else {
+				pattern.lastIndex = 0;
+			}
+		}
+
+		const marks: HTMLElement[] = [];
+		for (const node of textNodes) {
+			const value = node.nodeValue ?? "";
+			pattern.lastIndex = 0;
+			const fragment = document.createDocumentFragment();
+			let cursor = 0;
+			for (const match of value.matchAll(pattern)) {
+				const index = match.index ?? 0;
+				const matchedText = match[0];
+				if (index > cursor) fragment.append(document.createTextNode(value.slice(cursor, index)));
+				const mark = document.createElement("mark");
+				mark.className = "kd-search-hit";
+				mark.textContent = matchedText;
+				fragment.append(mark);
+				marks.push(mark);
+				cursor = index + matchedText.length;
+			}
+			if (cursor < value.length) fragment.append(document.createTextNode(value.slice(cursor)));
+			node.parentNode?.replaceChild(fragment, node);
+		}
+
+		const first = marks[0];
+		let frame = 0;
+		if (first) {
+			first.classList.add("kd-search-hit-current");
+			frame = window.requestAnimationFrame(() => {
+				first.scrollIntoView({
+					behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+					block: "center",
+				});
+			});
+		}
+
+		// Remove the one-shot query after applying highlights.
+		if (params.has("kd-find")) {
+			params.delete("kd-find");
+			const nextUrl = window.location.pathname +
+				(params.toString() ? "?" + params.toString() : "") +
+				window.location.hash;
+			window.history.replaceState(window.history.state, "", nextUrl);
+		}
+
+		return () => {
+			if (frame) window.cancelAnimationFrame(frame);
+			for (const mark of marks) {
+				mark.replaceWith(document.createTextNode(mark.textContent ?? ""));
+			}
+		};
+	}, [page?.slug, project.id, highlightTerm]);
+
 	// Listen for Ctrl/Cmd+K, Escape, and EngineScroll #-es hash navigation.
 	useEffect(() => {
 		executeEngineScrollHash();
@@ -300,11 +564,11 @@ export default function DocsShell({
 			executeEngineScrollHash();
 		};
 		const onKey = (e: KeyboardEvent) => {
-			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+			if ((e.metaKey || e.ctrlKey) && ["k", "f"].includes(e.key.toLowerCase())) {
 				e.preventDefault();
-				setSearchOpen((prev) => !prev);
+				openSearch();
 			} else if (e.key === "Escape") {
-				setSearchOpen(false);
+				closeSearch();
 				setProjectsOpen(false);
 				setBookmarksOpen(false);
 				setNotebookOpen(false);
@@ -319,7 +583,7 @@ export default function DocsShell({
 			window.removeEventListener("hashchange", onHash);
 			window.removeEventListener("keydown", onKey);
 		};
-	}, [page?.slug]);
+	}, [page?.slug, openSearch, closeSearch]);
 
 	// Android-style floating text selection pill (Copy | Pin | Notebook).
 	useEffect(() => {
@@ -442,20 +706,57 @@ export default function DocsShell({
 	}, [notebook, notebookQuery, notebookScope, project.id]);
 
 	const searchResults = useMemo(() => {
-		const q = query.trim().toLowerCase();
-		if (!q) {
-			return [];
+		const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+		if (!tokens.length) return [];
+
+		const pool = searchScope === "project"
+			? searchIndex.filter((item) => item.projectId === project.id)
+			: searchIndex;
+		const hits: DocsSearchResult[] = [];
+
+		for (const item of pool) {
+			const title = (item.title + " " + item.section + " " + item.projectName).toLowerCase();
+			const body = item.text.toLowerCase();
+			if (!tokens.every((token) => title.includes(token) || body.includes(token))) continue;
+
+			const titleMatches = tokens.every((token) => title.includes(token));
+			const score =
+				(titleMatches ? 1000 : 0) +
+				tokens.reduce((total, token) => total + (title.includes(token) ? 90 : 30), 0) +
+				(item.projectId === project.id ? 40 : 0) +
+				(item.track === track ? 10 : 0);
+			hits.push({
+				...item,
+				score,
+				snippet: getSearchSnippet(item.text, query.trim()),
+			});
 		}
-		const hits: Array<{ project: ProjectRecord; page: DocPageMeta }> = [];
-		for (const proj of manifest.projects) {
-			for (const p of proj.pages) {
-				if (p.title.toLowerCase().includes(q) || proj.name.toLowerCase().includes(q)) {
-					hits.push({ project: proj, page: p });
-				}
+
+		return hits.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, 30);
+	}, [searchIndex, query, searchScope, project.id, track]);
+
+	useEffect(() => {
+		setSelectedSearchIndex(0);
+	}, [query, searchScope]);
+
+	useEffect(() => {
+		if (!searchOpen) return;
+		const onSearchKeys = (event: KeyboardEvent) => {
+			if (event.key === "ArrowDown" && searchResults.length) {
+				event.preventDefault();
+				setSelectedSearchIndex((current) => Math.min(searchResults.length - 1, current + 1));
+			} else if (event.key === "ArrowUp" && searchResults.length) {
+				event.preventDefault();
+				setSelectedSearchIndex((current) => Math.max(0, current - 1));
+			} else if (event.key === "Enter" && searchResults[selectedSearchIndex]) {
+				event.preventDefault();
+				openSearchResult(searchResults[selectedSearchIndex]);
 			}
-		}
-		return hits.slice(0, 12);
-	}, [manifest.projects, query]);
+		};
+		document.addEventListener("keydown", onSearchKeys);
+		return () => document.removeEventListener("keydown", onSearchKeys);
+	}, [searchOpen, searchResults, selectedSearchIndex]);
+
 
 	// Click vertical Battery bar -> generate /share/<8char> with level + track in Vercel Analytics.
 	const handleBatteryShare = () => {
@@ -721,15 +1022,93 @@ export default function DocsShell({
 						)}
 					</nav>
 				</div>
+				<div className="kd-search-center" ref={searchPanelRef}>
+					<div className="kd-search-field">
+						<span className="kd-search-field-icon" aria-hidden="true">⌕</span>
+						<input
+							ref={searchInputRef}
+							type="search"
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+							onFocus={() => setSearchOpen(true)}
+							 onKeyDown={(event) => {
+								if (event.key === "Escape") closeSearch();
+							}}
+							placeholder="Search documentation, error codes, and commands..."
+							aria-label="Search all documentation text"
+							aria-expanded={searchOpen}
+							aria-controls="kd-search-floating"
+						/>
+						<kbd>Ctrl K</kbd>
+					</div>
+
+					{searchOpen && (
+						<section className="kd-search-floating" id="kd-search-floating" role="dialog" aria-label="Documentation search">
+							<div className="kd-search-toolbar">
+								<div className="kd-search-scopes" aria-label="Search scope">
+									<button type="button" className={searchScope === "project" ? "active" : ""} aria-pressed={searchScope === "project"} onClick={() => setSearchScope("project")}>
+										{project.name}
+									</button>
+									<button type="button" className={searchScope === "all" ? "active" : ""} aria-pressed={searchScope === "all"} onClick={() => setSearchScope("all")}>
+										All projects
+									</button>
+								</div>
+								<button type="button" className="kd-search-pin" aria-pressed={searchPinned} onClick={toggleSearchPin} title="Keep this search panel open while navigating">
+									{searchPinned ? "Pinned" : "Keep open"}
+								</button>
+								<button type="button" className="kd-search-close" onClick={closeSearch} aria-label="Close documentation search">×</button>
+							</div>
+
+							<div className="kd-search-result-list" role="listbox" aria-label="Matching documentation pages">
+								{searchLoading && <div className="kd-search-state">Loading {searchScope === "project" ? project.name : "project"} documentation index…</div>}
+								{searchError && (
+									<div className="kd-search-state kd-search-error">
+										<span>{searchError}</span>
+										<button type="button" onClick={() => setSearchLoadNonce((value) => value + 1)}>Retry</button>
+									</div>
+								)}
+								{!searchLoading && !searchError && !query.trim() && (
+									<div className="kd-search-state">
+										Search titles, headings, documentation text, error codes, and code examples.
+									</div>
+								)}
+								{query.trim() && searchResults.map((result, index) => (
+									<button
+										key={result.projectId + "/" + result.track + "/" + result.slug}
+										type="button"
+										id={"kd-search-result-" + index}
+										role="option"
+										aria-selected={selectedSearchIndex === index}
+										className={"kd-search-result" + (selectedSearchIndex === index ? " is-selected" : "")}
+										onMouseEnter={() => setSelectedSearchIndex(index)}
+										onClick={() => openSearchResult(result)}
+									>
+										<span className="kd-search-result-top">
+											<strong>{result.title}</strong>
+											<small>{result.projectName} · {result.section} · {result.track.toUpperCase()}</small>
+										</span>
+										<span className="kd-search-result-snippet">{result.snippet}</span>
+									</button>
+								))}
+								{query.trim() && !searchLoading && !searchError && !searchResults.length && (
+									<div className="kd-search-state">No documentation text matched “{query.trim()}”.</div>
+								)}
+							</div>
+							<div className="kd-search-footer">
+								<span><kbd>↑</kbd><kbd>↓</kbd> Select</span>
+								<span><kbd>Enter</kbd> Open and highlight</span>
+								<span><kbd>Esc</kbd> Close</span>
+							</div>
+						</section>
+					)}
+				</div>
+
 				<div className="kd-topbar-right">
 					<button type="button" className="kd-btn-secondary" onClick={() => setBookmarksOpen(true)}>
 						Pinned ({bookmarks.length})
 					</button>
 					<button type="button" className="kd-btn-secondary" onClick={() => setNotebookOpen(true)}>
 						Notebook ({notebook.length})
-					</button>
-					<button type="button" className="kd-search-trigger" onClick={() => setSearchOpen(true)}>
-						Search... <kbd>⌘K</kbd>
 					</button>
 					<a href={project.repoUrl} target="_blank" rel="noopener noreferrer" className="kd-repo-link">
 						GitHub
@@ -1142,35 +1521,6 @@ export default function DocsShell({
 				</div>
 			)}
 
-			{searchOpen && (
-				<div className="kd-modal-backdrop" onClick={() => setSearchOpen(false)}>
-					<div className="kd-modal" onClick={(e) => e.stopPropagation()}>
-						<input
-							type="search"
-							autoFocus
-							value={query}
-							onChange={(e) => setQuery(e.target.value)}
-							placeholder="Search Kastrick Docs & Guides..."
-							className="kd-search-input"
-						/>
-						<ul className="kd-search-results">
-							{searchResults.map(({ project: proj, page: item }) => (
-								<li key={`${proj.id}-${item.track}-${item.slug}`}>
-									<Link
-										href={`/${proj.id}/${item.slug}`}
-										onClick={() => setSearchOpen(false)}
-									>
-										<strong>{item.title}</strong>
-										<span>
-											{proj.name} · {item.track.toUpperCase()}
-										</span>
-									</Link>
-								</li>
-							))}
-						</ul>
-					</div>
-				</div>
-			)}
 
 			{toast && <div className="kd-toast">{toast}</div>}
 		</div>
