@@ -34,7 +34,7 @@ export default function ShareResolver({ projects }: ShareResolverProps) {
 		const params = new URLSearchParams(window.location.search);
 		const fromQuery = params.get("c") ?? params.get("code") ?? "";
 		const fromHash = window.location.hash.replace(/^#/, "");
-		const pathMatch = window.location.pathname.match(/\\/share\\/([A-Za-z0-9]{8})\\/?$/);
+		const pathMatch = window.location.pathname.match(/\/share\/([A-Za-z0-9]{8})\/?$/);
 		const code = (fromQuery || fromHash || pathMatch?.[1] || "").trim();
 
 		const decoded = decodeShareCode(code);
