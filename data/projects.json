@@ -105,7 +105,8 @@
 				"doc/linux-builds.md": "Build & Tooling",
 				"doc/sdk-local-authoring.md": "SDK",
 				"doc/sdk-project-activation.md": "SDK",
-				"doc/cloud-node-local-sync.md": "Cloud Nodes"
+				"doc/cloud-node-local-sync.md": "Cloud Nodes",
+				"doc/rbe-sys-runtimes.md": "Runtime"
 			},
 			"accentColor": "#f07842",
 			"issueTemplate": "document-suggested-edit.md",
@@ -198,6 +199,7 @@
 			"sectionOrder": [
 				"Project Overview",
 				"Getting Started",
+				"Guides",
 				"Engine Core",
 				"Compiler",
 				"Command Line",
