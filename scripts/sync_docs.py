@@ -118,6 +118,156 @@ def write_search_index(projects: list[dict[str, Any]], generated_at: str) -> int
 	return total_pages
 
 
+
+
+DOCS_PUBLIC_ORIGIN = "https://k8d.vercel.app"
+DOCS_CANONICAL_ORIGIN = "https://kastrick-docs.vercel.app"
+LEGACY_SITE_ORIGIN = "https://kastrick.vercel.app"
+MIGRATION_MANIFEST_FILE = REPO_ROOT / "public" / "share" / "manifest.json"
+
+
+def legacy_paths_for_page(project_id: str, source_path: str) -> list[str]:
+\t"""Return the exact documentation URLs served by the previous Kastrick site."""
+\tif project_id == "rbe" and source_path.startswith("doc/"):
+\t\trelative = source_path[len("doc/"):]
+\t\tif relative.lower() == "readme.md":
+\t\t\tsuffix = ""
+\t\telif relative.lower().endswith("/readme.md"):
+\t\t\tsuffix = relative[:-len("/README.md")]
+\t\telse:
+\t\t\tsuffix = relative[:-3] if relative.lower().endswith(".md") else relative
+\t\treturn ["/project/rbe/doc" + ("/" + suffix if suffix else "")]
+
+\tif project_id == "nextjs-engine" and source_path.startswith("docs/"):
+\t\trelative = source_path[len("docs/"):]
+\t\tsuffix = relative[:-3] if relative.lower().endswith(".md") else relative
+\t\tpath = "/project/nextjs-engine/doc/" + suffix
+\t\treturn [path, "/product/nextjs-engine/doc/" + suffix]
+
+\treturn []
+
+
+def write_migration_manifest(projects: list[dict[str, Any]], generated_at: str) -> int:
+\t"""Publish the old Kastrick documentation URL map for the main site to consume."""
+\tproject_entries: list[dict[str, Any]] = []
+\tredirects_by_source: dict[str, dict[str, str]] = {}
+
+\tfor project in projects:
+\t\tif not project.get("established", False) or not project.get("pages"):
+\t\t\tcontinue
+
+\t\tpages: list[dict[str, Any]] = []
+\t\tfor page in project.get("pages", []):
+\t\t\tsource_path = page.get("sourcePath", "")
+\t\t\tslug = page.get("slug", "")
+\t\t\tif not slug:
+\t\t\t\tcontinue
+\t\t\tpath = "/" + project["id"] + "/" + slug.strip("/")
+\t\t\t\tlegacy_paths = legacy_paths_for_page(project["id"], source_path)
+\t\t\t\tentry = {
+\t\t\t\t\t"sourcePath": source_path,
+\t\t\t\t\t"path": path,
+\t\t\t\t\t"url": DOCS_PUBLIC_ORIGIN + path,
+\t\t\t\t\t"title": page.get("title", ""),
+\t\t\t\t\t"section": page.get("section", "Documentation"),
+\t\t\t\t\t"track": page.get("track", "docs"),
+\t\t\t\t\t"legacyPaths": legacy_paths,
+\t\t\t\t}
+\t\t\t\tpages.append(entry)
+\t\t\t\tfor legacy_path in legacy_paths:
+\t\t\t\t\tprevious = redirects_by_source.get(legacy_path)
+\t\t\t\t\tif previous and previous["to"] != entry["url"]:
+\t\t\t\t\t\traise ValueError(
+\t\t\t\t\t\t\tf"Legacy docs URL {legacy_path} maps to two targets: "
+\t\t\t\t\t\t\tf"{previous['to']} and {entry['url']}"
+\t\t\t\t\t\t)
+\t\t\t\t\tredirects_by_source[legacy_path] = {
+\t\t\t\t\t\t"from": legacy_path,
+\t\t\t\t\t\t"to": entry["url"],
+\t\t\t\t\t\t"projectId": project["id"],
+\t\t\t\t\t\t"sourcePath": source_path,
+\t\t\t\t\t}
+
+\t\tproject_entries.append({
+\t\t\t"id": project["id"],
+\t\t\t"name": project["name"],
+\t\t\t"pages": pages,
+\t\t})
+
+\tengine_index = next(
+\t\t(
+\t\t\tpage for project in project_entries if project["id"] == "nextjs-engine"
+\t\t\tfor page in project["pages"] if page["sourcePath"] == "docs/3/index.md"
+\t\t),
+\t\tNone,
+\t)
+\tengine_fallback = engine_index["url"] if engine_index else DOCS_PUBLIC_ORIGIN + "/nextjs-engine/overview"
+\tengine_migration = DOCS_PUBLIC_ORIGIN + "/nextjs-engine/docs/3/migration-from-2x"
+
+\t# The old product root always opened the Gen 3 index. Keep that entry explicit,
+\t# while retaining exact per-document entries for deep links.
+\tfor legacy_root in (
+\t\t"/project/nextjs-engine/doc",
+\t\t"/product/nextjs-engine/doc",
+\t):
+\t\tredirects_by_source[legacy_root] = {
+\t\t\t"from": legacy_root,
+\t\t\t"to": engine_fallback,
+\t\t\t"projectId": "nextjs-engine",
+\t\t\t"sourcePath": "docs/3/index.md",
+\t\t}
+
+\tprefix_fallbacks = [
+\t\t{
+\t\t\t"fromPrefix": "/project/rbe/doc",
+\t\t\t"to": DOCS_PUBLIC_ORIGIN + "/rbe/doc",
+\t\t\t"mode": "append-suffix",
+\t\t\t"projectId": "rbe",
+\t\t},
+\t\t{
+\t\t\t"fromPrefix": "/project/nextjs-engine/doc/2",
+\t\t\t"to": engine_migration,
+\t\t\t"mode": "fixed",
+\t\t\t"projectId": "nextjs-engine",
+\t\t},
+\t\t{
+\t\t\t"fromPrefix": "/product/nextjs-engine/doc/2",
+\t\t\t"to": engine_migration,
+\t\t\t"mode": "fixed",
+\t\t\t"projectId": "nextjs-engine",
+\t\t},
+\t\t{
+\t\t\t"fromPrefix": "/project/nextjs-engine/doc",
+\t\t\t"to": engine_fallback,
+\t\t\t"mode": "fixed",
+\t\t\t"projectId": "nextjs-engine",
+\t\t},
+\t\t{
+\t\t\t"fromPrefix": "/product/nextjs-engine/doc",
+\t\t\t"to": engine_fallback,
+\t\t\t"mode": "fixed",
+\t\t\t"projectId": "nextjs-engine",
+\t\t},
+\t]
+
+\tpayload = {
+\t\t"schemaVersion": 1,
+\t\t"generatedAt": generated_at,
+\t\t"legacyOrigin": LEGACY_SITE_ORIGIN,
+\t\t"docsOrigin": DOCS_PUBLIC_ORIGIN,
+\t\t"canonicalDocsOrigin": DOCS_CANONICAL_ORIGIN,
+\t\t"manifestUrl": DOCS_PUBLIC_ORIGIN + "/share/manifest.json",
+\t\t"projects": project_entries,
+\t\t"redirects": sorted(redirects_by_source.values(), key=lambda item: item["from"]),
+\t\t"prefixFallbacks": prefix_fallbacks,
+\t}
+\tMIGRATION_MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+\tMIGRATION_MANIFEST_FILE.write_text(
+\t\tjson.dumps(payload, ensure_ascii=False, indent="\\t") + "\\n",
+\t\tencoding="utf-8",
+\t)
+\treturn len(payload["redirects"])
+
 def slugify(text: str) -> str:
 	"""Convert a heading or file stem into a clean URL-safe slug."""
 	cleaned = re.sub(r"[^a-zA-Z0-9\s-]", "", text).strip().lower()
@@ -465,6 +615,9 @@ def main() -> int:
 
 	search_count = write_search_index(manifest["projects"], manifest["generatedAt"])
 	print(f"[sync_docs] Wrote per-project full-text search indexes for {search_count} pages to {SEARCH_INDEX_DIR.relative_to(REPO_ROOT)}/.")
+
+	redirect_count = write_migration_manifest(manifest["projects"], manifest["generatedAt"])
+	print(f"[sync_docs] Wrote documentation migration manifest with {redirect_count} exact redirects to {MIGRATION_MANIFEST_FILE.relative_to(REPO_ROOT)}.")
 	return 0
 
 

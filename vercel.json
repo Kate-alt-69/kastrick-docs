@@ -14,7 +14,7 @@
 	],
 	"rewrites": [
 		{
-			"source": "/share/:code",
+			"source": "/share/:code([A-Za-z0-9]{8})",
 			"destination": "/share?c=:code"
 		}
 	]
