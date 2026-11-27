@@ -143,6 +143,7 @@ export default function DocsShell({
 	const [bookmarksOpen, setBookmarksOpen] = useState(false);
 	const [notebookOpen, setNotebookOpen] = useState(false);
 	const [shareOpen, setShareOpen] = useState(false);
+	const [mobileNavOpen, setMobileNavOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [toast, setToast] = useState<string | null>(null);
 	const [scrollPct, setScrollPct] = useState(0);
@@ -295,6 +296,7 @@ export default function DocsShell({
 				setBookmarksOpen(false);
 				setNotebookOpen(false);
 				setShareOpen(false);
+				setMobileNavOpen(false);
 				setSelectionBar((prev) => ({ ...prev, visible: false }));
 			}
 		};
@@ -362,6 +364,26 @@ export default function DocsShell({
 		() => project.pages.filter((p) => p.track === track),
 		[project.pages, track],
 	);
+
+	const sidebarGroups = useMemo(() => {
+		const grouped = trackPages.reduce<Record<string, DocPageMeta[]>>((acc, item) => {
+			const section = item.section || (track === "guides" ? "Guides" : "Documentation");
+			(acc[section] ||= []).push(item);
+			return acc;
+		}, {});
+		const sectionOrder = new Map((project.sectionOrder ?? []).map((section, index) => [section, index]));
+
+		return Object.entries(grouped)
+			.map(([sectionName, items]) => ({ sectionName, items }))
+			.sort((a, b) => {
+				const aOrder = sectionOrder.get(a.sectionName);
+				const bOrder = sectionOrder.get(b.sectionName);
+				if (aOrder !== undefined || bOrder !== undefined) {
+					return (aOrder ?? Number.MAX_SAFE_INTEGER) - (bOrder ?? Number.MAX_SAFE_INTEGER);
+				}
+				return a.sectionName.localeCompare(b.sectionName);
+			});
+	}, [trackPages, track, project.sectionOrder]);
 
 	const outlineItems = useMemo(() => {
 		let sectionNumber = 0;
@@ -703,43 +725,73 @@ export default function DocsShell({
 			</header>
 
 			<div className="kd-grid">
-				<aside className="kd-sidebar">
-					<div className="kd-track-switch">
-						{(["docs", "guides"] as DocTrack[]).map((t) => {
-							const targetPage = project.pages.find((p) => p.track === t);
-							const href = targetPage
-								? `/${project.id}/${targetPage.slug}`
-								: `/${project.id}`;
-							return (
-								<Link key={t} href={href} className={`kd-track-btn ${track === t ? "active" : ""}`}>
+				<aside className="kd-sidebar" aria-label="Documentation navigation">
+					<button
+						type="button"
+						className="kd-mobile-nav-trigger"
+						aria-expanded={mobileNavOpen}
+						aria-controls="kd-sidebar-content"
+						onClick={() => setMobileNavOpen((open) => !open)}
+					>
+						<span className="kd-mobile-nav-copy">
+							<span className="kd-mobile-nav-label">{project.name} documentation</span>
+							<strong className="kd-mobile-nav-current">{page?.title ?? project.name}</strong>
+						</span>
+						<span className="kd-mobile-nav-action">{mobileNavOpen ? "Close" : "Browse"}</span>
+					</button>
+
+					<div id="kd-sidebar-content" className={`kd-sidebar-content ${mobileNavOpen ? "is-open" : ""}`}>
+						<div className="kd-sidebar-project">
+							<strong>{project.name}</strong>
+							<span>{track === "docs" ? "Documentation" : "Guides"}</span>
+						</div>
+						<div className="kd-track-switch" aria-label="Documentation track">
+							{(["docs", "guides"] as DocTrack[]).map((t) => {
+								const targetPage = project.pages.find((p) => p.track === t);
+								const href = targetPage ? `/${project.id}/${targetPage.slug}` : `/${project.id}`;
+								return (
+									<Link
+									key={t}
+									href={href}
+									className={`kd-track-btn ${track === t ? "active" : ""}`}
+									onClick={() => setMobileNavOpen(false)}
+								>
 									{t === "docs" ? "Docs" : "Guides"}
 								</Link>
-							);
-						})}
-					</div>
-					{Object.entries(
-						trackPages.reduce<Record<string, DocPageMeta[]>>((acc, item) => {
-							const sec = item.section || (track === "guides" ? "Guides" : "Documentation");
-							(acc[sec] ||= []).push(item);
-							return acc;
-						}, {}),
-					).map(([sectionName, items]) => (
-						<div key={sectionName} className="kd-nav-group">
-							<div className="kd-nav-group-title">{sectionName}</div>
-							<ul className="kd-nav-list">
-								{items.map((item) => (
-									<li key={item.slug}>
-										<Link
-											href={`/${project.id}/${item.slug}`}
-											className={`kd-nav-link ${page?.slug === item.slug ? "active" : ""}`}
-										>
-											{item.title}
-										</Link>
-									</li>
-								))}
-							</ul>
+								);
+							})}
 						</div>
-					))}
+
+						<nav className="kd-sidebar-navigation" aria-label={`${project.name} ${track === "docs" ? "documentation" : "guides"}`}>
+							<div className="kd-nav-groups" key={page?.slug ?? "overview"}>
+								{sidebarGroups.map(({ sectionName, items }) => (
+									<details
+										key={sectionName}
+										className="kd-nav-group"
+										defaultOpen={items.some((item) => item.slug === page?.slug)}
+									>
+										<summary className="kd-nav-group-title">
+											<span>{sectionName}</span>
+											<span className="kd-nav-group-count">{items.length}</span>
+										</summary>
+										<ul className="kd-nav-list">
+											{items.map((item) => (
+												<li key={item.slug}>
+													<Link
+														href={`/${project.id}/${item.slug}`}
+														className={`kd-nav-link ${page?.slug === item.slug ? "active" : ""}`}
+														onClick={() => setMobileNavOpen(false)}
+													>
+														{item.title}
+													</Link>
+												</li>
+											))}
+										</ul>
+									</details>
+								))}
+							</div>
+						</nav>
+					</div>
 				</aside>
 
 				<main className="kd-main">
