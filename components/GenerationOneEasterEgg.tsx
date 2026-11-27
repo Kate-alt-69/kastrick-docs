@@ -41,7 +41,7 @@ export default function GenerationOneEasterEgg() {
 					{stage === 0 && "There is nothing to see in this archive."}
 					{stage === 1 && "This route was not included in the public index."}
 					{stage === 2 && "Initialising a completely fictional terminal sequence..."}
-					{stage >= 3 && "SIMULATION OUTPUT — NO DEVICE OR NETWORK ACCESS"}
+					{stage >= 3 && "SIMULATION OUTPUT — STATIC / LOCAL TO THIS PAGE"}
 				</p>
 
 				{stage >= 3 && (
@@ -61,8 +61,8 @@ export default function GenerationOneEasterEgg() {
 				{stage >= 4 && (
 					<div className="kd-v1-reveal">
 						<strong>Relax. You found the easter egg.</strong>
-						This was a scripted visual joke. No personal information was collected, accessed, recorded, or sent.
-						No camera, microphone, files, location, or network requests were used.
+						This was a scripted visual joke. No personal information was collected, recorded, or sent.
+						Camera, microphone, files, and location were never accessed.
 					</div>
 				)}
 
