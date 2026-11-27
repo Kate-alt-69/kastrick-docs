@@ -1,6 +1,5 @@
-// app/[project]/[slug]/page.tsx — Static /<project>/<slug> documentation page.
-// Built with NES (Next.js Engine Schema) mounting our custom "kastrick-doc-shell"
-// component via createPage({ schema, registry }).
+// app/[project]/[...slug]/page.tsx — Static nested documentation routes.
+// Public paths mirror the source documentation tree, e.g. /rbe/doc/x.route.
 
 import React from "react";
 import { notFound } from "next/navigation";
@@ -10,14 +9,17 @@ import { getProject, loadManifest, readPageMarkdown, renderMarkdown } from "@/li
 
 export function generateStaticParams() {
 	const manifest = loadManifest();
-	const params: Array<{ project: string; slug: string }> = [];
+	const params: Array<{ project: string; slug: string[] }> = [];
 
 	for (const project of manifest.projects) {
 		if (project.pages.length === 0) {
-			params.push({ project: project.id, slug: "overview" });
+			params.push({ project: project.id, slug: ["overview"] });
 		} else {
 			for (const page of project.pages) {
-				params.push({ project: project.id, slug: page.slug });
+				params.push({
+					project: project.id,
+					slug: page.slug.split("/").filter(Boolean),
+				});
 			}
 		}
 	}
@@ -27,22 +29,27 @@ export function generateStaticParams() {
 export default async function ProjectDocPage({
 	params,
 }: {
-	params: Promise<{ project: string; slug: string }>;
+	params: Promise<{ project: string; slug: string[] }>;
 }) {
-	const { project: projectId, slug } = await params;
+	const { project: projectId, slug: slugSegments } = await params;
+	const slug = slugSegments.join("/");
 	const manifest = loadManifest();
 	const project = getProject(projectId);
 	if (!project) {
 		notFound();
 	}
 
-	const page = project.pages.find((p) => p.slug === slug) ?? null;
-	const rawMarkdown = page ? readPageMarkdown(page.localFile) : "";
-	const htmlContent = page ? renderMarkdown(rawMarkdown) : "";
+	const page = project.pages.find((item) => item.slug === slug) ?? null;
+	if (!page) {
+		notFound();
+	}
+
+	const rawMarkdown = readPageMarkdown(page.localFile);
+	const htmlContent = renderMarkdown(rawMarkdown);
 
 	const schema = defineSchema({
 		meta: {
-			title: `${page?.title ?? project.name} — ${project.name} · Kastrick Docs`,
+			title: `${page.title} — ${project.name} · Kastrick Docs`,
 			description: project.description,
 		},
 		root: {
@@ -50,8 +57,8 @@ export default async function ProjectDocPage({
 			props: {
 				manifestJson: JSON.stringify(manifest),
 				projectJson: JSON.stringify(project),
-				track: page?.track ?? "docs",
-				pageJson: page ? JSON.stringify(page) : "",
+				track: page.track,
+				pageJson: JSON.stringify(page),
 				htmlContent,
 				rawMarkdown,
 			} as never,

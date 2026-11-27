@@ -124,6 +124,17 @@ def slugify(text: str) -> str:
 	return re.sub(r"[\s_-]+", "-", cleaned) or "overview"
 
 
+def route_path_from_markdown(source_path: str) -> str:
+	"""Preserve the source document path as the public route, omitting only .md."""
+	normalized = source_path.replace("\\", "/").strip("/")
+	without_extension = normalized[:-3] if normalized.lower().endswith(".md") else normalized
+	leaf = posixpath.basename(without_extension).lower()
+	if leaf in ("readme", "index"):
+		parent = posixpath.dirname(without_extension).strip("/")
+		return parent or "overview"
+	return without_extension
+
+
 def extract_title_and_toc(markdown: str, fallback_title: str) -> tuple[str, list[dict[str, Any]]]:
 	"""Extract the H1 page title and H2/H3 outline entries from Markdown text."""
 	title = fallback_title
@@ -310,18 +321,14 @@ def fetch_repo_markdown(
 			section = resolve_section(rel_path, section_map, track)
 
 			stem = Path(rel_path).stem
-			parent_str = str(Path(rel_path).parent).replace("\\", "/")
-			if parent_str == ".":
-				parent_str = ""
-			parent_slug = slugify(parent_str) if parent_str else ""
-
-			if stem.lower() in ("readme", "index"):
-				slug = "overview" if parent_slug in ("", "doc", "docs", "docs-3", "guides") else parent_slug
-			else:
-				slug = slugify(stem)
+			slug = route_path_from_markdown(rel_path)
 
 			if slug in seen_slugs:
-				slug = slugify(rel_path[:-3].replace("/", "-"))
+				# A sibling file can collide with a directory README route. Keep the
+				# full source path rather than flattening it into an unrelated slug.
+				slug = posixpath.splitext(rel_path)[0]
+				if slug in seen_slugs:
+					raise ValueError(f"Duplicate documentation route `/{project['id']}/{slug}` from {rel_path}")
 			seen_slugs.add(slug)
 			path_to_slug[rel_path.lower()] = slug
 			raw_entries.append((rel_path, track, section, slug, content))
@@ -337,10 +344,14 @@ def fetch_repo_markdown(
 			path_to_slug,
 		)
 		stem = Path(rel_path).stem
-		fallback_title = "Overview" if slug == "overview" else stem.replace("-", " ").replace("_", " ").title()
+		if stem.lower() in ("readme", "index"):
+			title_stem = posixpath.basename(slug) if slug != "overview" else "Overview"
+		else:
+			title_stem = stem
+		fallback_title = title_stem.replace("-", " ").replace("_", " ").replace(".", " ").title()
 		title, toc = extract_title_and_toc(rewritten, fallback_title)
 
-		out_file = CONTENT_DIR / project["id"] / track / f"{slug}.md"
+		out_file = CONTENT_DIR / project["id"] / track / (slug + ".md")
 		out_file.parent.mkdir(parents=True, exist_ok=True)
 		out_file.write_text(rewritten, encoding="utf-8")
 
@@ -360,29 +371,48 @@ def fetch_repo_markdown(
 
 
 def index_local_content(project: dict[str, Any]) -> list[dict[str, Any]]:
-	"""Index already-present static Markdown files in content/<project>/ for offline builds."""
+	"""Index local snapshots, reusing source-path metadata from the previous manifest."""
 	pages: list[dict[str, Any]] = []
 	project_dir = CONTENT_DIR / project["id"]
 	if not project_dir.exists():
 		return pages
 
+	previous_by_file: dict[str, dict[str, Any]] = {}
+	if MANIFEST_FILE.is_file():
+		try:
+			previous_manifest = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
+			for previous_project in previous_manifest.get("projects", []):
+				if previous_project.get("id") == project["id"]:
+					for previous_page in previous_project.get("pages", []):
+						previous_by_file[previous_page.get("localFile", "")] = previous_page
+		except (OSError, json.JSONDecodeError, TypeError):
+			previous_by_file = {}
+
 	for track in ("docs", "guides"):
 		track_dir = project_dir / track
 		if not track_dir.exists():
 			continue
-		for md_file in sorted(track_dir.glob("*.md")):
+		for md_file in sorted(track_dir.rglob("*.md")):
+			local_file = str(md_file.relative_to(REPO_ROOT)).replace("\\", "/")
+			previous = previous_by_file.get(local_file, {})
+			source_path = previous.get("sourcePath") or str(md_file.relative_to(track_dir)).replace("\\", "/")
+			slug = route_path_from_markdown(source_path)
 			content = md_file.read_text(encoding="utf-8")
-			slug = md_file.stem
-			fallback_title = slug.replace("-", " ").title()
+			stem = Path(source_path).stem
+			if stem.lower() in ("readme", "index"):
+				title_stem = posixpath.basename(slug) if slug != "overview" else "Overview"
+			else:
+				title_stem = stem
+			fallback_title = title_stem.replace("-", " ").replace("_", " ").replace(".", " ").title()
 			title, toc = extract_title_and_toc(content, fallback_title)
 			pages.append({
 				"slug": slug,
 				"track": track,
-				"section": "Guides" if track == "guides" else "Core Architecture",
+				"section": previous.get("section") or ("Guides" if track == "guides" else "Core Architecture"),
 				"title": title,
-				"sourcePath": f"{track}/{md_file.name}",
-				"sourceBranch": project.get("branch", "main"),
-				"localFile": str(md_file.relative_to(REPO_ROOT)).replace("\\", "/"),
+				"sourcePath": source_path,
+				"sourceBranch": previous.get("sourceBranch") or project.get("branch", "main"),
+				"localFile": local_file,
 				"toc": toc,
 			})
 	return pages
