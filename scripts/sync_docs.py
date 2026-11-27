@@ -59,7 +59,7 @@ IGNORED_FILES = {
 	"license.md",
 }
 
-SEARCH_INDEX_FILE = REPO_ROOT / "public" / "docs-search-index.json"
+SEARCH_INDEX_DIR = REPO_ROOT / "public" / "docs-search-index"
 
 
 def searchable_markdown(markdown: str) -> str:
@@ -74,14 +74,17 @@ def searchable_markdown(markdown: str) -> str:
 	text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
 	text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
 	text = re.sub(r"\x60([^\x60]*)\x60", r"\1", text)
-	text = re.sub(r"[*_~|]", " ", text)
+	text = re.sub(r"[*~|]", " ", text)
 	return re.sub(r"\s+", " ", text).strip()
 
 
 def write_search_index(projects: list[dict[str, Any]], generated_at: str) -> int:
-	"""Write a lazily-loaded full-text index from the exact Markdown used by the build."""
-	entries: list[dict[str, str]] = []
+	"""Write one lazily-loaded full-text index per established project."""
+	SEARCH_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+	total_pages = 0
+
 	for project in projects:
+		entries: list[dict[str, str]] = []
 		for page in project.get("pages", []):
 			local_file = REPO_ROOT / page["localFile"]
 			if not local_file.is_file():
@@ -97,13 +100,23 @@ def write_search_index(projects: list[dict[str, Any]], generated_at: str) -> int
 				"text": searchable_markdown(markdown),
 			})
 
-	SEARCH_INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
-	payload = {"generatedAt": generated_at, "pages": entries}
-	SEARCH_INDEX_FILE.write_text(
-		json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n",
-		encoding="utf-8",
-	)
-	return len(entries)
+		if not entries:
+			continue
+
+		payload = {
+			"generatedAt": generated_at,
+			"projectId": project["id"],
+			"pages": entries,
+		}
+		index_file = SEARCH_INDEX_DIR / (project["id"] + ".json")
+		index_file.write_text(
+			json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n",
+			encoding="utf-8",
+		)
+		total_pages += len(entries)
+
+	return total_pages
+
 
 def slugify(text: str) -> str:
 	"""Convert a heading or file stem into a clean URL-safe slug."""
@@ -421,7 +434,7 @@ def main() -> int:
 	print(f"[sync_docs] Wrote static manifest to {MANIFEST_FILE.relative_to(REPO_ROOT)}.")
 
 	search_count = write_search_index(manifest["projects"], manifest["generatedAt"])
-	print(f"[sync_docs] Wrote full-text search index with {search_count} pages to {SEARCH_INDEX_FILE.relative_to(REPO_ROOT)}.")
+	print(f"[sync_docs] Wrote per-project full-text search indexes for {search_count} pages to {SEARCH_INDEX_DIR.relative_to(REPO_ROOT)}/.")
 	return 0
 
 
