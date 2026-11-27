@@ -3,7 +3,12 @@
 import { track } from "@vercel/analytics";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
-import { decodeShareCode, SHARE_HEADING_ANCHOR_BASE } from "@/lib/shareCode";
+import {
+	CANONICAL_DOCS_ORIGIN,
+	decodeShareCode,
+	SHARE_HEADING_ANCHOR_BASE,
+	SHARE_LINK_ORIGIN,
+} from "@/lib/shareCode";
 
 interface ShareTargetPage {
 	slug: string;
@@ -20,7 +25,6 @@ interface ShareResolverProps {
 	projects: ShareTargetProject[];
 }
 
-
 export default function ShareResolver({ projects }: ShareResolverProps) {
 	const router = useRouter();
 	const [status, setStatus] = useState<"loading" | "invalid">("loading");
@@ -30,7 +34,7 @@ export default function ShareResolver({ projects }: ShareResolverProps) {
 		const params = new URLSearchParams(window.location.search);
 		const fromQuery = params.get("c") ?? params.get("code") ?? "";
 		const fromHash = window.location.hash.replace(/^#/, "");
-		const pathMatch = window.location.pathname.match(/\/share\/([A-Za-z0-9]{8})\/?$/);
+		const pathMatch = window.location.pathname.match(/\\/share\\/([A-Za-z0-9]{8})\\/?$/);
 		const code = (fromQuery || fromHash || pathMatch?.[1] || "").trim();
 
 		const decoded = decodeShareCode(code);
@@ -86,6 +90,15 @@ export default function ShareResolver({ projects }: ShareResolverProps) {
 			"/" + project.id + "/" + targetPage.slug +
 			"#-es?move=" + encodeURIComponent(targetAnchor) +
 			"&offset=-84&duration=550";
+
+		// Vercel also redirects /share/<code> at the edge. Keep this fallback so
+		// query-style or client-routed share links opened on the short host still
+		// land on the canonical documentation domain.
+		if (window.location.hostname === new URL(SHARE_LINK_ORIGIN).hostname) {
+			window.location.replace(new URL(destination, CANONICAL_DOCS_ORIGIN).toString());
+			return;
+		}
+
 		router.replace(destination);
 	}, [projects, router]);
 
