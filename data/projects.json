@@ -106,7 +106,8 @@
 				"doc/sdk-local-authoring.md": "SDK",
 				"doc/sdk-project-activation.md": "SDK",
 				"doc/cloud-node-local-sync.md": "Cloud Nodes",
-				"doc/rbe-sys-runtimes.md": "Runtime"
+				"doc/rbe-sys-runtimes.md": "Runtime",
+				"doc/x.server": "File Type - how they work"
 			},
 			"accentColor": "#f07842",
 			"issueTemplate": "document-suggested-edit.md",

@@ -233,6 +233,7 @@ export default function DocsShell({
 		try {
 			sessionStorage.removeItem("kastrick-docs-search-pinned");
 			sessionStorage.removeItem("kastrick-docs-search-query");
+			sessionStorage.removeItem("kastrick-docs-search-scope");
 		} catch {
 			// Search remains usable when session storage is unavailable.
 		}
@@ -245,9 +246,12 @@ export default function DocsShell({
 			if (next) {
 				sessionStorage.setItem("kastrick-docs-search-pinned", "1");
 				sessionStorage.setItem("kastrick-docs-search-query", query);
+			sessionStorage.setItem("kastrick-docs-search-scope", searchScope);
+				sessionStorage.setItem("kastrick-docs-search-scope", searchScope);
 			} else {
 				sessionStorage.removeItem("kastrick-docs-search-pinned");
 				sessionStorage.removeItem("kastrick-docs-search-query");
+				sessionStorage.removeItem("kastrick-docs-search-scope");
 			}
 		} catch {
 			// Pinning still works for the current page without session storage.
@@ -262,6 +266,7 @@ export default function DocsShell({
 			try {
 				sessionStorage.setItem("kastrick-docs-search-pinned", "1");
 				sessionStorage.setItem("kastrick-docs-search-query", term);
+				sessionStorage.setItem("kastrick-docs-search-scope", searchScope);
 			} catch {
 				// The search panel remains pinned for the current render.
 			}
@@ -281,6 +286,7 @@ export default function DocsShell({
 				setSearchPinned(true);
 				setSearchOpen(true);
 				setQuery(sessionStorage.getItem("kastrick-docs-search-query") ?? "");
+				setSearchScope(sessionStorage.getItem("kastrick-docs-search-scope") === "all" ? "all" : "project");
 			}
 		} catch {
 			// Search works without persisted panel state.
@@ -294,7 +300,7 @@ export default function DocsShell({
 		} catch {
 			// The current search query remains in React state.
 		}
-	}, [searchPinned, query]);
+	}, [searchPinned, query, searchScope]);
 
 	useEffect(() => {
 		if (!searchOpen) return;
@@ -308,9 +314,10 @@ export default function DocsShell({
 		setSearchLoading(true);
 		setSearchError("");
 		Promise.all(missingIds.map(async (id) => {
-			const response = await fetch("/docs-search-index/" + encodeURIComponent(id) + ".json", {
-				cache: "no-cache",
-			});
+			const response = await fetch(
+				"/docs-search-index/" + encodeURIComponent(id) + ".json?v=" + encodeURIComponent(manifest.generatedAt),
+				{ cache: "force-cache" },
+			);
 			if (!response.ok) throw new Error("Search index unavailable for " + id + ".");
 			const payload: unknown = await response.json();
 			if (!payload || typeof payload !== "object" || !("pages" in payload) || !Array.isArray(payload.pages)) {
@@ -1035,7 +1042,7 @@ export default function DocsShell({
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
 							onFocus={() => setSearchOpen(true)}
-							 onKeyDown={(event) => {
+							onKeyDown={(event) => {
 								if (event.key === "Escape") closeSearch();
 							}}
 							placeholder="Search documentation, error codes, and commands..."
@@ -1043,7 +1050,7 @@ export default function DocsShell({
 							aria-expanded={searchOpen}
 							aria-controls="kd-search-floating"
 						/>
-						<kbd>Ctrl K</kbd>
+						<kbd>Ctrl/⌘ K</kbd>
 					</div>
 
 					{searchOpen && (
@@ -1101,6 +1108,7 @@ export default function DocsShell({
 							<div className="kd-search-footer">
 								<span><kbd>↑</kbd><kbd>↓</kbd> Select</span>
 								<span><kbd>Enter</kbd> Open and highlight</span>
+								<span><kbd>Ctrl/⌘ K</kbd> / <kbd>Ctrl/⌘ F</kbd> Focus</span>
 								<span><kbd>Esc</kbd> Close</span>
 							</div>
 						</section>
