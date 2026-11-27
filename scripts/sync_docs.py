@@ -59,6 +59,52 @@ IGNORED_FILES = {
 	"license.md",
 }
 
+SEARCH_INDEX_FILE = REPO_ROOT / "public" / "docs-search-index.json"
+
+
+def searchable_markdown(markdown: str) -> str:
+	"""Convert Markdown to compact searchable text while retaining prose and code."""
+	text = re.sub(
+		r"(?s)```[^\n]*\n(.*?)```",
+		lambda match: "\\n" + match.group(1) + "\\n",
+		markdown,
+	)
+	text = re.sub(r"(?m)^\\s{0,3}#{1,6}\\s*", "", text)
+	text = re.sub(r"(?m)^\\s*(?:[-*+] |\\d+[.)]\\s+)", "", text)
+	text = re.sub(r"!\\[([^\\]]*)\\]\\([^)]+\\)", r"\\1", text)
+	text = re.sub(r"\\[([^\\]]+)\\]\\([^)]+\\)", r"\\1", text)
+	text = re.sub(r"`([^`]*)`", r"\\1", text)
+	text = re.sub(r"[*_~|]", " ", text)
+	return re.sub(r"\\s+", " ", text).strip()
+
+
+def write_search_index(projects: list[dict[str, Any]], generated_at: str) -> int:
+	"""Write a lazily-loaded full-text index from the exact Markdown used by the build."""
+	entries: list[dict[str, str]] = []
+	for project in projects:
+		for page in project.get("pages", []):
+			local_file = REPO_ROOT / page["localFile"]
+			if not local_file.is_file():
+				continue
+			markdown = local_file.read_text(encoding="utf-8")
+			entries.append({
+				"projectId": project["id"],
+				"projectName": project["name"],
+				"track": page["track"],
+				"slug": page["slug"],
+				"title": page["title"],
+				"section": page.get("section", "Documentation"),
+				"text": searchable_markdown(markdown),
+			})
+
+	SEARCH_INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
+	payload = {"generatedAt": generated_at, "pages": entries}
+	SEARCH_INDEX_FILE.write_text(
+		json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\\n",
+		encoding="utf-8",
+	)
+	return len(entries)
+
 
 def slugify(text: str) -> str:
 	"""Convert a heading or file stem into a clean URL-safe slug."""
@@ -374,6 +420,9 @@ def main() -> int:
 	CONTENT_DIR.mkdir(parents=True, exist_ok=True)
 	MANIFEST_FILE.write_text(json.dumps(manifest, indent="\t") + "\n", encoding="utf-8")
 	print(f"[sync_docs] Wrote static manifest to {MANIFEST_FILE.relative_to(REPO_ROOT)}.")
+
+	search_count = write_search_index(manifest["projects"], manifest["generatedAt"])
+	print(f"[sync_docs] Wrote full-text search index with {search_count} pages to {SEARCH_INDEX_FILE.relative_to(REPO_ROOT)}.")
 	return 0
 
 
