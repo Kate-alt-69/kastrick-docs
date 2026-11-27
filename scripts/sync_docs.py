@@ -65,17 +65,17 @@ SEARCH_INDEX_FILE = REPO_ROOT / "public" / "docs-search-index.json"
 def searchable_markdown(markdown: str) -> str:
 	"""Convert Markdown to compact searchable text while retaining prose and code."""
 	text = re.sub(
-		r"(?s)```[^\n]*\n(.*?)```",
-		lambda match: "\\n" + match.group(1) + "\\n",
+		r"(?s)\x60{3}[^\n]*\n(.*?)\x60{3}",
+		lambda match: "\n" + match.group(1) + "\n",
 		markdown,
 	)
-	text = re.sub(r"(?m)^\\s{0,3}#{1,6}\\s*", "", text)
-	text = re.sub(r"(?m)^\\s*(?:[-*+] |\\d+[.)]\\s+)", "", text)
-	text = re.sub(r"!\\[([^\\]]*)\\]\\([^)]+\\)", r"\\1", text)
-	text = re.sub(r"\\[([^\\]]+)\\]\\([^)]+\\)", r"\\1", text)
-	text = re.sub(r"`([^`]*)`", r"\\1", text)
+	text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", text)
+	text = re.sub(r"(?m)^\s*(?:[-*+]\s+|\d+[.)]\s+)", "", text)
+	text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+	text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+	text = re.sub(r"\x60([^\x60]*)\x60", r"\1", text)
 	text = re.sub(r"[*_~|]", " ", text)
-	return re.sub(r"\\s+", " ", text).strip()
+	return re.sub(r"\s+", " ", text).strip()
 
 
 def write_search_index(projects: list[dict[str, Any]], generated_at: str) -> int:
@@ -100,11 +100,10 @@ def write_search_index(projects: list[dict[str, Any]], generated_at: str) -> int
 	SEARCH_INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
 	payload = {"generatedAt": generated_at, "pages": entries}
 	SEARCH_INDEX_FILE.write_text(
-		json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\\n",
+		json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n",
 		encoding="utf-8",
 	)
 	return len(entries)
-
 
 def slugify(text: str) -> str:
 	"""Convert a heading or file stem into a clean URL-safe slug."""
