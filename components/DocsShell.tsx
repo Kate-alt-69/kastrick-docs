@@ -14,7 +14,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { DocPageMeta, DocTrack, DocsManifest, ProjectRecord } from "@/lib/content";
-import { decodeShareCode, encodeShareCode, SHARE_HEADING_ANCHOR_BASE } from "@/lib/shareCode";
+import { decodeShareCode, encodeShareCode, SHARE_HEADING_ANCHOR_BASE, SHARE_LINK_ORIGIN } from "@/lib/shareCode";
 
 interface DocsShellProps {
 	manifest: DocsManifest;
@@ -482,7 +482,7 @@ export default function DocsShell({
 			lineIdx,
 			levelPct: scrollPct,
 		});
-		const url = `${window.location.origin}/share/${code}`;
+		const url = `${SHARE_LINK_ORIGIN}/share/${code}`;
 		setShortShareUrl(url);
 		setShortCodeInput(code);
 		setShareOpen(true);
