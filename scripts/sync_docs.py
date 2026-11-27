@@ -263,7 +263,7 @@ def write_migration_manifest(projects: list[dict[str, Any]], generated_at: str) 
 	}
 	MIGRATION_MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
 	MIGRATION_MANIFEST_FILE.write_text(
-		json.dumps(payload, ensure_ascii=False, indent="\	") + "\\n",
+		json.dumps(payload, ensure_ascii=False, indent="  ") + "\n",
 		encoding="utf-8",
 	)
 	return len(payload["redirects"])
