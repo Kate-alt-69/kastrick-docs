@@ -246,7 +246,6 @@ export default function DocsShell({
 			if (next) {
 				sessionStorage.setItem("kastrick-docs-search-pinned", "1");
 				sessionStorage.setItem("kastrick-docs-search-query", query);
-			sessionStorage.setItem("kastrick-docs-search-scope", searchScope);
 				sessionStorage.setItem("kastrick-docs-search-scope", searchScope);
 			} else {
 				sessionStorage.removeItem("kastrick-docs-search-pinned");
@@ -297,6 +296,7 @@ export default function DocsShell({
 		if (!searchPinned) return;
 		try {
 			sessionStorage.setItem("kastrick-docs-search-query", query);
+			sessionStorage.setItem("kastrick-docs-search-scope", searchScope);
 		} catch {
 			// The current search query remains in React state.
 		}
@@ -579,6 +579,7 @@ export default function DocsShell({
 				try {
 					sessionStorage.removeItem("kastrick-docs-search-pinned");
 					sessionStorage.removeItem("kastrick-docs-search-query");
+					sessionStorage.removeItem("kastrick-docs-search-scope");
 				} catch {}
 				setProjectsOpen(false);
 				setBookmarksOpen(false);
@@ -753,6 +754,7 @@ export default function DocsShell({
 	useEffect(() => {
 		if (!searchOpen) return;
 		const onSearchKeys = (event: KeyboardEvent) => {
+			if (document.activeElement !== searchInputRef.current) return;
 			if (event.key === "ArrowDown" && searchResults.length) {
 				event.preventDefault();
 				setSelectedSearchIndex((current) => Math.min(searchResults.length - 1, current + 1));
@@ -1038,6 +1040,7 @@ export default function DocsShell({
 						<span className="kd-search-field-icon" aria-hidden="true">⌕</span>
 						<input
 							ref={searchInputRef}
+							id="kd-doc-search-input"
 							type="search"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
@@ -1049,6 +1052,7 @@ export default function DocsShell({
 							aria-label="Search all documentation text"
 							aria-expanded={searchOpen}
 							aria-controls="kd-search-floating"
+							aria-activedescendant={searchResults[selectedSearchIndex] ? "kd-search-result-" + selectedSearchIndex : undefined}
 						/>
 						<kbd>Ctrl/⌘ K</kbd>
 					</div>
