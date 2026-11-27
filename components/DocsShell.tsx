@@ -309,7 +309,7 @@ export default function DocsShell({
 		setSearchError("");
 		Promise.all(missingIds.map(async (id) => {
 			const response = await fetch("/docs-search-index/" + encodeURIComponent(id) + ".json", {
-				cache: "force-cache",
+				cache: "no-cache",
 			});
 			if (!response.ok) throw new Error("Search index unavailable for " + id + ".");
 			const payload: unknown = await response.json();
