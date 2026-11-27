@@ -569,9 +569,15 @@ export default function DocsShell({
 		const onKey = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && ["k", "f"].includes(e.key.toLowerCase())) {
 				e.preventDefault();
-				openSearch();
+				setSearchOpen(true);
+				window.requestAnimationFrame(() => document.getElementById("kd-doc-search-input")?.focus());
 			} else if (e.key === "Escape") {
-				closeSearch();
+				setSearchOpen(false);
+				setSearchPinned(false);
+				try {
+					sessionStorage.removeItem("kastrick-docs-search-pinned");
+					sessionStorage.removeItem("kastrick-docs-search-query");
+				} catch {}
 				setProjectsOpen(false);
 				setBookmarksOpen(false);
 				setNotebookOpen(false);
@@ -586,7 +592,7 @@ export default function DocsShell({
 			window.removeEventListener("hashchange", onHash);
 			window.removeEventListener("keydown", onKey);
 		};
-	}, [page?.slug, openSearch, closeSearch]);
+	}, [page?.slug]);
 
 	// Android-style floating text selection pill (Copy | Pin | Notebook).
 	useEffect(() => {
