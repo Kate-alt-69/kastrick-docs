@@ -489,45 +489,48 @@ export default function DocsShell({
 		const tokens = [...new Set(term.split(/\s+/).filter(Boolean))]
 			.sort((a, b) => b.length - a.length);
 		if (!tokens.length) return;
-		const pattern = new RegExp("(" + tokens.map((token) =>
-			token.replace(/[.*+?^\x24{}()|[\]\\]/g, "\\	// Listen for Ctrl/Cmd+K, Escape, and EngineScroll #-es hash navigation.
-")
-		).join("|") + ")", "gi");
 		const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
 		const textNodes: Text[] = [];
 		let current: Node | null;
 		while ((current = walker.nextNode())) {
 			const parent = current.parentElement;
 			if (!parent || parent.closest("script, style, textarea, button, .kd-search-skip")) continue;
-			if (current.nodeValue && pattern.test(current.nodeValue)) {
-				pattern.lastIndex = 0;
-				textNodes.push(current as Text);
-			} else {
-				pattern.lastIndex = 0;
-			}
+			if (current.nodeValue) textNodes.push(current as Text);
 		}
 
 		const marks: HTMLElement[] = [];
 		for (const node of textNodes) {
 			const value = node.nodeValue ?? "";
-			pattern.lastIndex = 0;
+			const lower = value.toLowerCase();
+			const ranges: Array<{ start: number; end: number }> = [];
+			for (const token of tokens) {
+				const needle = token.toLowerCase();
+				let offset = 0;
+				while (needle && offset < lower.length) {
+					const index = lower.indexOf(needle, offset);
+					if (index < 0) break;
+					ranges.push({ start: index, end: index + needle.length });
+					offset = index + needle.length;
+				}
+			}
+			ranges.sort((a, b) => a.start - b.start || b.end - a.end);
+			if (!ranges.length) continue;
+
 			const fragment = document.createDocumentFragment();
 			let cursor = 0;
-			for (const match of value.matchAll(pattern)) {
-				const index = match.index ?? 0;
-				const matchedText = match[0];
-				if (index > cursor) fragment.append(document.createTextNode(value.slice(cursor, index)));
+			for (const range of ranges) {
+				if (range.start < cursor) continue;
+				if (range.start > cursor) fragment.append(document.createTextNode(value.slice(cursor, range.start)));
 				const mark = document.createElement("mark");
 				mark.className = "kd-search-hit";
-				mark.textContent = matchedText;
+				mark.textContent = value.slice(range.start, range.end);
 				fragment.append(mark);
 				marks.push(mark);
-				cursor = index + matchedText.length;
+				cursor = range.end;
 			}
 			if (cursor < value.length) fragment.append(document.createTextNode(value.slice(cursor)));
 			node.parentNode?.replaceChild(fragment, node);
 		}
-
 		const first = marks[0];
 		let frame = 0;
 		if (first) {
