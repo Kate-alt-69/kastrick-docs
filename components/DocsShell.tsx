@@ -2,7 +2,7 @@
 // Includes:
 //   - Top Projects dropdown (RBE, Next.js Engine, PackageX, PackX, PackageX SDKs, Kastrick's Utility)
 //   - Docs / Guides dual tracks & Ctrl/Cmd+K instant search
-//   - Right-side vertical scroll-progress Battery ("Click to Share") emitting /share/<8char> URLs
+//   - Right-side reading context, section outline, and independent page-position progress
 //   - EngineScroll #-es?move=<target>&offset=-84&duration=550 share URL resolution
 //   - In-app Pinning/Bookmarks + Android-style floating text-selection pill (Copy | Pin | Notebook)
 //   - Verbatim CC BY-ND 4.0 .md download & GitHub Issue edit links
@@ -14,7 +14,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { DocPageMeta, DocTrack, DocsManifest, ProjectRecord } from "@/lib/content";
-import { decodeShareCode, encodeShareCode, SHARE_HEADING_ANCHOR_BASE, SHARE_LINK_ORIGIN } from "@/lib/shareCode";
 
 interface DocsShellProps {
 	manifest: DocsManifest;
@@ -198,17 +197,13 @@ export default function DocsShell({
 	const [highlightTerm, setHighlightTerm] = useState("");
 	const [bookmarksOpen, setBookmarksOpen] = useState(false);
 	const [notebookOpen, setNotebookOpen] = useState(false);
-	const [shareOpen, setShareOpen] = useState(false);
 	const [mobileNavOpen, setMobileNavOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [toast, setToast] = useState<string | null>(null);
 	const [scrollPct, setScrollPct] = useState(0);
 	const [articleProgress, setArticleProgress] = useState(0);
 	const [activeTocId, setActiveTocId] = useState("");
-	const [showBattery, setShowBattery] = useState(false);
 	const [lastAnchor, setLastAnchor] = useState("top");
-	const [shortShareUrl, setShortShareUrl] = useState("");
-	const [shortCodeInput, setShortCodeInput] = useState("");
 	const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
 	const [notebook, setNotebook] = useState<NotebookItem[]>([]);
 	const [notebookQuery, setNotebookQuery] = useState("");
@@ -278,6 +273,7 @@ export default function DocsShell({
 		} else {
 			setSearchOpen(false);
 		}
+		window.dispatchEvent(new Event("kd:navigation-start"));
 		router.push(
 			"/" + result.projectId + "/" + result.slug + "?kd-find=" + encodeURIComponent(term),
 		);
@@ -427,11 +423,6 @@ export default function DocsShell({
 		const onScroll = () => {
 			const doc = document.documentElement;
 			const maxScroll = Math.max(0, doc.scrollHeight - window.innerHeight);
-			const readingContentBottom = articleRef.current
-				? articleRef.current.getBoundingClientRect().bottom + window.scrollY
-				: 0;
-			const usefulScrollDepth = Math.max(220, Math.round(window.innerHeight * 0.32));
-			setShowBattery(readingContentBottom - window.innerHeight > usefulScrollDepth);
 			setScrollPct(maxScroll > 0
 				? Math.max(0, Math.min(100, Math.round((window.scrollY / maxScroll) * 100)))
 				: 0);
@@ -590,7 +581,6 @@ export default function DocsShell({
 				setProjectsOpen(false);
 				setBookmarksOpen(false);
 				setNotebookOpen(false);
-				setShareOpen(false);
 				setMobileNavOpen(false);
 				setSelectionBar((prev) => ({ ...prev, visible: false }));
 			}
@@ -780,65 +770,43 @@ export default function DocsShell({
 	}, [searchOpen, searchResults, selectedSearchIndex]);
 
 
-	// Click vertical Battery bar -> generate /share/<8char> with level + track in Vercel Analytics.
-	const handleBatteryShare = () => {
-		const projectIdx = Math.max(
-			0,
-			manifest.projects.findIndex((p) => p.id === project.id),
-		);
-		const pageIdx = Math.max(
-			0,
-			trackPages.findIndex((p) => p.slug === page?.slug),
-		);
-		const generationIdx = Math.max(
-			0,
-			project.generations?.findIndex((generation) => generation.id === activeGeneration) ?? 0,
-		);
-		const lineMatch = lastAnchor.match(/^L(\d+)$/);
-		const headingIdx = page?.toc.findIndex((item) => item.id === lastAnchor) ?? -1;
-		const parsedLine = lineMatch ? Number(lineMatch[1]) : 0;
-		const lineIdx = parsedLine > 0
-			? Math.min(parsedLine, SHARE_HEADING_ANCHOR_BASE - 1)
-			: headingIdx >= 0
-				? SHARE_HEADING_ANCHOR_BASE + headingIdx
-				: 0;
-		const code = encodeShareCode({
-			projectIdx,
-			trackIdx: track === "guides" ? 1 : 0,
-			generationIdx,
-			pageIdx,
-			lineIdx,
-			levelPct: scrollPct,
-		});
-		const url = `${SHARE_LINK_ORIGIN}/share/${code}`;
-		setShortShareUrl(url);
-		setShortCodeInput(code);
-		setShareOpen(true);
-		navigator.clipboard?.writeText(url).catch(() => {});
-		try {
-			trackEvent("doc_share_create", {
-				code,
-				project: project.id,
-				track,
-				generation: activeGeneration ?? "unversioned",
-				slug: page?.slug ?? "overview",
-				levelPct: scrollPct,
-			});
-		} catch {}
-		notify(`Copied /share/${code} (Level ${scrollPct}%)`);
-	};
+	// Share the actual documentation URL, including any current EngineScroll hash.
+	const handleShareCurrentPage = async () => {
+		const shareUrl = window.location.href;
+		const recordShare = () => {
+			try {
+				trackEvent("doc_share_current", {
+					project: project.id,
+					track,
+					generation: activeGeneration ?? "unversioned",
+					slug: page?.slug ?? "overview",
+					levelPct: scrollPct,
+				});
+			} catch {
+				// Sharing must not depend on analytics availability.
+			}
+		};
 
-	const handleResolveShortCode = () => {
-		const cleaned = shortCodeInput.trim().replace(/^.*\/share\//i, "").slice(0, 8);
-		const decoded = decodeShareCode(cleaned);
-		if (!decoded) {
-			notify("Invalid 8-character share code");
-			return;
+		if (typeof navigator.share === "function") {
+			try {
+				await navigator.share({ title: page?.title ?? project.name, url: shareUrl });
+				recordShare();
+				notify("Shared current page");
+				return;
+			} catch (error) {
+				if (error instanceof DOMException && error.name === "AbortError") return;
+			}
 		}
-		setShareOpen(false);
-		router.push(`/share/${cleaned}`);
-	};
 
+		try {
+			if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+			await navigator.clipboard.writeText(shareUrl);
+			recordShare();
+			notify("Copied current page URL");
+		} catch {
+			notify("Could not share this page in the current browser");
+		}
+	};
 	const togglePin = (anchor: string, title: string) => {
 		const slug = page?.slug ?? "overview";
 		const key = `${project.id}:${track}:${slug}:${anchor}`;
@@ -1247,6 +1215,9 @@ export default function DocsShell({
 
 				<main className="kd-main">
 					<div className="kd-page-actions">
+						<button type="button" className="kd-btn-secondary" onClick={handleShareCurrentPage}>
+							Share
+						</button>
 						<button
 							type="button"
 							className="kd-btn-secondary"
@@ -1282,7 +1253,7 @@ export default function DocsShell({
 				<aside className="kd-toc" aria-label="On this page">
 					<div className="kd-toc-layout">
 						<div className="kd-toc-row">
-							<div className="kd-toc-panel">
+							<div className="kd-toc-panel" key={page?.slug ?? project.id}>
 								<section className="kd-toc-summary" aria-label="Page reading details">
 									<div className="kd-toc-panel-heading">
 										<h2 className="kd-toc-title">On this page</h2>
@@ -1310,16 +1281,27 @@ export default function DocsShell({
 											<span style={{ width: articleProgress + "%" }} />
 										</div>
 									</div>
+									<div className="kd-toc-progress kd-toc-progress-secondary">
+										<div className="kd-toc-progress-label">
+											<span>Page position</span>
+											<strong>{scrollPct}%</strong>
+										</div>
+										<div className="kd-toc-progress-track" role="progressbar" aria-label="Position through the full documentation page" aria-valuemin={0} aria-valuemax={100} aria-valuenow={scrollPct}>
+											<span style={{ width: scrollPct + "%" }} />
+										</div>
+										<p className="kd-toc-progress-note">Overall page position, including content below the outline.</p>
+									</div>
 								</section>
 
 								<nav className="kd-toc-outline" aria-label="Page sections">
 									<div className="kd-toc-outline-label">Contents</div>
 									{outlineItems.length > 0 ? (
 										<ol className="kd-toc-list">
-											{outlineItems.map((item) => (
+											{outlineItems.map((item, index) => (
 												<li
 													key={item.id}
 													className={"level-" + item.level + (item.id === activeTocId ? " active" : "")}
+														style={{ animationDelay: Math.min(index * 34, 340) + "ms" }}
 												>
 													<a
 														href={"#-es?move=" + encodeURIComponent(item.id) + "&offset=-84&duration=550"}
@@ -1338,26 +1320,6 @@ export default function DocsShell({
 								</nav>
 							</div>
 
-							{showBattery && (
-								<div className="kd-battery-wrap">
-									<span className="kd-battery-tooltip">Click to Share</span>
-									<button
-										type="button"
-										className="kd-battery-btn"
-										onClick={handleBatteryShare}
-										aria-label="Click to Share current scroll level"
-									>
-										<span className="kd-battery-cap" />
-										<span className="kd-battery-body">
-											<span
-												className="kd-battery-fill"
-												style={{ height: Math.max(8, scrollPct) + "%" }}
-											/>
-										</span>
-										<span className="kd-battery-pct">{scrollPct}%</span>
-									</button>
-								</div>
-							)}
 						</div>
 					</div>
 				</aside>
@@ -1425,27 +1387,6 @@ export default function DocsShell({
 					<button type="button" onClick={saveSelectionToNotebook}>
 						Notebook
 					</button>
-				</div>
-			)}
-
-			{shareOpen && (
-				<div className="kd-modal-backdrop" onClick={() => setShareOpen(false)}>
-					<div className="kd-modal" onClick={(e) => e.stopPropagation()}>
-						<h3>Share Point (/share/&lt;8char&gt;)</h3>
-						<input type="text" readOnly value={shortShareUrl} className="kd-search-input" />
-						<div className="kd-footer-actions">
-							<input
-								type="text"
-								value={shortCodeInput}
-								onChange={(e) => setShortCodeInput(e.target.value)}
-								placeholder="Paste 8-char code"
-								className="kd-search-input"
-							/>
-							<button type="button" className="kd-btn-primary" onClick={handleResolveShortCode}>
-								Resolve
-							</button>
-						</div>
-					</div>
 				</div>
 			)}
 
