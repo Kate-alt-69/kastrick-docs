@@ -146,6 +146,8 @@ export default function DocsShell({
 	const [query, setQuery] = useState("");
 	const [toast, setToast] = useState<string | null>(null);
 	const [scrollPct, setScrollPct] = useState(0);
+	const [articleProgress, setArticleProgress] = useState(0);
+	const [activeTocId, setActiveTocId] = useState("");
 	const [showBattery, setShowBattery] = useState(false);
 	const [lastAnchor, setLastAnchor] = useState("top");
 	const [shortShareUrl, setShortShareUrl] = useState("");
@@ -212,7 +214,7 @@ export default function DocsShell({
 		return () => document.removeEventListener("mousedown", onOutside);
 	}, []);
 
-	// Keep the share battery only on pages with enough scroll depth to make it useful.
+	// Track the current article section and keep the share battery useful on long pages.
 	useEffect(() => {
 		const onScroll = () => {
 			const doc = document.documentElement;
@@ -225,24 +227,51 @@ export default function DocsShell({
 			setScrollPct(maxScroll > 0
 				? Math.max(0, Math.min(100, Math.round((window.scrollY / maxScroll) * 100)))
 				: 0);
-			const headings = articleRef.current?.querySelectorAll("h2[id], h3[id], p[id], li[id]");
-			if (headings) {
-				for (const el of Array.from(headings)) {
+
+			const article = articleRef.current;
+			if (article) {
+				const articleTop = article.getBoundingClientRect().top + window.scrollY;
+				const articleHeight = Math.max(1, article.scrollHeight);
+				const consumed = ((window.scrollY + window.innerHeight - articleTop) / articleHeight) * 100;
+				const nextProgress = Math.max(0, Math.min(100, Math.round(consumed)));
+				setArticleProgress((current) => current === nextProgress ? current : nextProgress);
+			}
+
+			const headings = article?.querySelectorAll<HTMLElement>("h2[id], h3[id]");
+			if (headings?.length) {
+				let currentHeading = "";
+				for (const heading of Array.from(headings)) {
+					if (heading.getBoundingClientRect().top <= 150) {
+						currentHeading = heading.id;
+					} else {
+						break;
+					}
+				}
+				const nextHeading = currentHeading || headings[0].id;
+				setActiveTocId((current) => current === nextHeading ? current : nextHeading);
+			} else {
+				setActiveTocId("");
+			}
+
+			const anchors = article?.querySelectorAll("h2[id], h3[id], p[id], li[id]");
+			if (anchors) {
+				for (const el of Array.from(anchors)) {
 					const rect = el.getBoundingClientRect();
 					if (rect.top >= 56 && rect.top <= window.innerHeight * 0.65) {
-						setLastAnchor(el.id);
+						setLastAnchor((current) => current === el.id ? current : el.id);
 						break;
 					}
 				}
 			}
 		};
+
 		onScroll();
 		window.addEventListener("scroll", onScroll, { passive: true });
 		window.addEventListener("resize", onScroll);
 		const observer = typeof ResizeObserver !== "undefined"
 			? new ResizeObserver(onScroll)
 			: null;
-		if (observer) observer.observe(document.documentElement);
+		if (observer && articleRef.current) observer.observe(articleRef.current);
 		return () => {
 			window.removeEventListener("scroll", onScroll);
 			window.removeEventListener("resize", onScroll);
@@ -333,6 +362,35 @@ export default function DocsShell({
 		() => project.pages.filter((p) => p.track === track),
 		[project.pages, track],
 	);
+
+	const outlineItems = useMemo(() => {
+		let sectionNumber = 0;
+		let subsectionNumber = 0;
+		return (page?.toc ?? []).map((item) => {
+			if (item.level <= 2) {
+				sectionNumber += 1;
+				subsectionNumber = 0;
+				return { ...item, number: String(sectionNumber).padStart(2, "0") };
+			}
+			subsectionNumber += 1;
+			return {
+				...item,
+				number: String(sectionNumber).padStart(2, "0") + "." + subsectionNumber,
+			};
+		});
+	}, [page?.toc]);
+
+	const pageReadingStats = useMemo(() => {
+		const wordCount = rawMarkdown.trim()
+			? rawMarkdown.trim().split(/\\s+/).filter(Boolean).length
+			: 0;
+		return {
+			wordCount,
+			readingMinutes: Math.max(1, Math.ceil(wordCount / 220)),
+		};
+	}, [rawMarkdown]);
+
+	const activeTocItem = outlineItems.find((item) => item.id === activeTocId);
 
 	const filteredNotebook = useMemo(() => {
 		const search = notebookQuery.trim().toLowerCase();
@@ -720,41 +778,99 @@ export default function DocsShell({
 				</main>
 
 				<aside className="kd-toc" aria-label="On this page">
-					<div className="kd-toc-row">
-						<div>
-							<div className="kd-toc-title">On This Page</div>
-							<ul>
-								{(page?.toc ?? []).map((item) => (
-									<li key={item.id} className={`level-${item.level}`}>
-										<a href={`#-es?move=${encodeURIComponent(item.id)}&offset=-84&duration=550`}>
-											{item.text}
-										</a>
-									</li>
-								))}
-							</ul>
-						</div>
+					<div className="kd-toc-layout">
+						<section className="kd-toc-summary" aria-label="Page reading details">
+							<div className="kd-toc-eyebrow">DOCUMENT MAP</div>
+							<div className="kd-toc-summary-heading">
+								<h2 className="kd-toc-title">On this page</h2>
+								<span className="kd-toc-count">{String(outlineItems.length).padStart(2, "0")}</span>
+							</div>
+							<p className="kd-toc-page-title">{page?.title ?? project.name}</p>
+							<div className="kd-toc-stats">
+								<div>
+									<strong>{pageReadingStats.readingMinutes} min</strong>
+									<span>READ</span>
+								</div>
+								<div>
+									<strong>{pageReadingStats.wordCount.toLocaleString()}</strong>
+									<span>WORDS</span>
+								</div>
+								<div>
+									<strong>{outlineItems.length}</strong>
+									<span>SECTIONS</span>
+								</div>
+							</div>
+							<div className="kd-toc-progress">
+								<div className="kd-toc-progress-label">
+									<span>READING PROGRESS</span>
+									<strong>{articleProgress}%</strong>
+								</div>
+								<div
+									className="kd-toc-progress-track"
+									role="progressbar"
+									aria-label="Article reading progress"
+									aria-valuemin={0}
+									aria-valuemax={100}
+									aria-valuenow={articleProgress}
+								>
+									<span style={{ width: articleProgress + "%" }} />
+								</div>
+							</div>
+							{activeTocItem && (
+								<div className="kd-toc-current" aria-live="polite">
+									<span>YOU ARE READING</span>
+									<strong>{activeTocItem.text}</strong>
+								</div>
+							)}
+						</section>
 
-						{/* Right-side vertical scroll-progress Battery ("Click to Share") */}
-						{showBattery && (
-						<div className="kd-battery-wrap">
-							<span className="kd-battery-tooltip">Click to Share</span>
-							<button
-								type="button"
-								className="kd-battery-btn"
-								onClick={handleBatteryShare}
-								aria-label="Click to Share current scroll level"
-							>
-								<span className="kd-battery-cap" />
-								<span className="kd-battery-body">
-									<span
-										className="kd-battery-fill"
-										style={{ height: `${Math.max(8, scrollPct)}%` }}
-									/>
-								</span>
-								<span className="kd-battery-pct">{scrollPct}%</span>
-							</button>
+						<div className="kd-toc-row">
+							<nav className="kd-toc-outline" aria-label="Page sections">
+								<div className="kd-toc-outline-label">IN THIS DOCUMENT</div>
+								{outlineItems.length > 0 ? (
+									<ol className="kd-toc-list">
+										{outlineItems.map((item) => (
+											<li
+												key={item.id}
+												className={"level-" + item.level + (item.id === activeTocId ? " active" : "")}
+											>
+												<a
+													href={"#-es?move=" + encodeURIComponent(item.id) + "&offset=-84&duration=550"}
+													className={item.id === activeTocId ? "active" : ""}
+													aria-current={item.id === activeTocId ? "location" : undefined}
+												>
+													<span className="kd-toc-number">{item.number}</span>
+													<span className="kd-toc-label">{item.text}</span>
+												</a>
+											</li>
+										))}
+									</ol>
+								) : (
+									<p className="kd-toc-empty">This page has no section headings.</p>
+								)}
+							</nav>
+
+							{showBattery && (
+								<div className="kd-battery-wrap">
+									<span className="kd-battery-tooltip">Click to Share</span>
+									<button
+										type="button"
+										className="kd-battery-btn"
+										onClick={handleBatteryShare}
+										aria-label="Click to Share current scroll level"
+									>
+										<span className="kd-battery-cap" />
+										<span className="kd-battery-body">
+											<span
+												className="kd-battery-fill"
+												style={{ height: Math.max(8, scrollPct) + "%" }}
+											/>
+										</span>
+										<span className="kd-battery-pct">{scrollPct}%</span>
+									</button>
+								</div>
+							)}
 						</div>
-						)}
 					</div>
 				</aside>
 			</div>
