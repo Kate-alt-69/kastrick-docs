@@ -2620,167 +2620,13 @@ button {
 }
 
 
-/* ── Refined article outline ─────────────────────────────────────────────── */
+/* ── Compact editor-style documentation outline ─────────────────────────── */
+.kd-toc {
+	padding: 1rem 0.85rem 1.25rem;
+}
+
 .kd-toc-layout {
-	display: flex;
-	flex-direction: column;
-	gap: 1.25rem;
 	min-width: 0;
-}
-
-.kd-toc-summary {
-	padding-bottom: 1.1rem;
-	border-bottom: 1px solid var(--kd-border);
-}
-
-.kd-toc-eyebrow,
-.kd-toc-outline-label {
-	color: var(--kd-subtle);
-	font-family: "JetBrains Mono", monospace;
-	font-size: 0.59rem;
-	font-weight: 650;
-	letter-spacing: 0.1em;
-}
-
-.kd-toc-summary-heading {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 0.5rem;
-	margin-top: 0.5rem;
-}
-
-.kd-toc-summary .kd-toc-title {
-	margin: 0;
-	color: var(--kd-text);
-	font-size: 0.91rem;
-	font-weight: 700;
-	letter-spacing: -0.025em;
-	text-transform: none;
-}
-
-.kd-toc-count {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 27px;
-	height: 24px;
-	padding: 0 0.35rem;
-	border: 1px solid var(--kd-border);
-	border-radius: 5px;
-	color: var(--kd-accent);
-	background: var(--kd-surface);
-	font-family: "JetBrains Mono", monospace;
-	font-size: 0.68rem;
-	font-weight: 650;
-}
-
-.kd-toc-page-title {
-	margin: 0.55rem 0 0.95rem;
-	color: var(--kd-muted);
-	font-size: 0.75rem;
-	line-height: 1.5;
-	overflow-wrap: anywhere;
-}
-
-.kd-toc-stats {
-	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: 0.3rem;
-}
-
-.kd-toc-stats > div {
-	display: flex;
-	flex-direction: column;
-	gap: 0.18rem;
-	min-width: 0;
-	padding: 0.45rem 0.4rem;
-	border: 1px solid var(--kd-border);
-	border-radius: 6px;
-	background: rgba(255, 255, 255, 0.018);
-}
-
-.kd-toc-stats strong {
-	color: var(--kd-text);
-	font-size: 0.72rem;
-	font-weight: 650;
-	letter-spacing: -0.015em;
-	white-space: nowrap;
-}
-
-.kd-toc-stats span {
-	color: var(--kd-subtle);
-	font-family: "JetBrains Mono", monospace;
-	font-size: 0.51rem;
-	letter-spacing: 0.055em;
-}
-
-.kd-toc-progress {
-	margin-top: 0.9rem;
-}
-
-.kd-toc-progress-label {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 0.5rem;
-	margin-bottom: 0.35rem;
-}
-
-.kd-toc-progress-label span {
-	color: var(--kd-subtle);
-	font-family: "JetBrains Mono", monospace;
-	font-size: 0.56rem;
-	font-weight: 600;
-	letter-spacing: 0.06em;
-}
-
-.kd-toc-progress-label strong {
-	color: var(--kd-accent);
-	font-family: "JetBrains Mono", monospace;
-	font-size: 0.64rem;
-	font-weight: 650;
-}
-
-.kd-toc-progress-track {
-	height: 4px;
-	overflow: hidden;
-	border-radius: 99px;
-	background: var(--kd-surface-2);
-}
-
-.kd-toc-progress-track span {
-	display: block;
-	height: 100%;
-	border-radius: inherit;
-	background: var(--kd-accent);
-	transition: width 0.18s linear;
-}
-
-.kd-toc-current {
-	display: flex;
-	flex-direction: column;
-	gap: 0.28rem;
-	margin-top: 0.85rem;
-	padding: 0.6rem 0.7rem;
-	border-left: 2px solid var(--kd-accent);
-	background: var(--kd-accent-soft);
-}
-
-.kd-toc-current span {
-	color: var(--kd-subtle);
-	font-family: "JetBrains Mono", monospace;
-	font-size: 0.54rem;
-	font-weight: 650;
-	letter-spacing: 0.075em;
-}
-
-.kd-toc-current strong {
-	color: var(--kd-text);
-	font-size: 0.71rem;
-	font-weight: 600;
-	line-height: 1.4;
-	overflow-wrap: anywhere;
 }
 
 .kd-toc-row {
@@ -2788,51 +2634,190 @@ button {
 	gap: 0.55rem;
 }
 
-.kd-toc-outline {
+.kd-toc-panel {
 	flex: 1;
 	min-width: 0;
+	overflow: hidden;
+	border: 1px solid var(--kd-border-strong);
+	border-radius: 4px;
+	background: var(--kd-surface);
+}
+
+.kd-toc-summary {
+	padding: 0.75rem 0.72rem 0.7rem;
+	border-bottom: 1px solid var(--kd-border-strong);
+	background: var(--kd-surface-2);
+}
+
+.kd-toc-panel-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+}
+
+.kd-toc-summary .kd-toc-title {
+	margin: 0;
+	color: var(--kd-text);
+	font-size: 0.82rem;
+	font-weight: 650;
+	letter-spacing: -0.015em;
+	line-height: 1.3;
+	text-transform: none;
+}
+
+.kd-toc-count {
+	display: inline-flex;
+	min-width: 22px;
+	height: 20px;
+	align-items: center;
+	justify-content: center;
+	padding: 0 0.3rem;
+	border: 1px solid var(--kd-border-strong);
+	border-radius: 3px;
+	color: var(--kd-muted);
+	background: var(--kd-surface);
+	font-family: "JetBrains Mono", monospace;
+	font-size: 0.62rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.kd-toc-page-title {
+	display: -webkit-box;
+	margin: 0.55rem 0 0.35rem;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	color: var(--kd-text);
+	font-size: 0.75rem;
+	font-weight: 550;
+	line-height: 1.4;
+	overflow-wrap: anywhere;
+}
+
+.kd-toc-meta {
+	display: flex;
+	align-items: center;
+	gap: 0.38rem;
+	color: var(--kd-muted);
+	font-size: 0.64rem;
+	line-height: 1.4;
+}
+
+.kd-toc-meta span[aria-hidden="true"] {
+	color: var(--kd-subtle);
+}
+
+.kd-toc-progress {
+	margin-top: 0.65rem;
+}
+
+.kd-toc-progress-label {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	margin-bottom: 0.28rem;
+	color: var(--kd-muted);
+	font-size: 0.63rem;
+	line-height: 1.3;
+}
+
+.kd-toc-progress-label span {
+	color: var(--kd-muted);
+	font-family: inherit;
+	font-size: inherit;
+	font-weight: 500;
+	letter-spacing: 0;
+}
+
+.kd-toc-progress-label strong {
+	color: var(--kd-text);
+	font-family: "JetBrains Mono", monospace;
+	font-size: 0.62rem;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+}
+
+.kd-toc-progress-track {
+	height: 3px;
+	overflow: hidden;
+	border: 1px solid var(--kd-border);
+	border-radius: 1px;
+	background: var(--kd-bg);
+}
+
+.kd-toc-progress-track span {
+	display: block;
+	height: 100%;
+	background: var(--kd-accent);
+	transition: width 0.18s linear;
+}
+
+.kd-toc-outline {
+	min-width: 0;
+	padding: 0 0 0.45rem;
 }
 
 .kd-toc-outline-label {
-	margin-bottom: 0.6rem;
+	padding: 0.62rem 0.72rem 0.48rem;
+	border-bottom: 1px solid var(--kd-border);
+	color: var(--kd-muted);
+	font-size: 0.67rem;
+	font-weight: 600;
+	letter-spacing: 0;
+	line-height: 1.25;
 }
 
 .kd-toc-list {
 	display: flex;
 	flex-direction: column;
-	gap: 0.18rem;
+	gap: 0;
 	margin: 0;
-	padding: 0;
+	padding: 0.3rem 0.28rem 0;
 	list-style: none;
-	counter-reset: none;
 }
 
 .kd-toc-list li {
 	min-width: 0;
+	margin: 0;
 	padding: 0;
 }
 
+.kd-toc-list li.level-2 {
+	margin-top: 0.08rem;
+}
+
 .kd-toc-list li.level-3 {
-	padding-left: 0.8rem;
+	margin-left: 0.62rem;
+	padding-left: 0.28rem;
+	border-left: 1px solid var(--kd-border-strong);
 }
 
 .kd-toc-list a {
 	display: flex;
+	min-width: 0;
 	align-items: flex-start;
-	gap: 0.48rem;
-	padding: 0.36rem 0.42rem;
+	gap: 0.42rem;
+	padding: 0.3rem 0.36rem;
 	border-left: 2px solid transparent;
-	border-radius: 0 5px 5px 0;
+	border-radius: 2px;
 	color: var(--kd-muted);
-	font-size: 0.72rem;
-	line-height: 1.45;
+	font-size: 0.69rem;
+	font-weight: 400;
+	line-height: 1.4;
 	text-decoration: none;
-	transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+	transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.kd-toc-list li.level-2 > a {
+	color: var(--kd-body);
+	font-weight: 550;
 }
 
 .kd-toc-list a:hover {
 	color: var(--kd-text);
-	background: rgba(255, 255, 255, 0.035);
+	background: rgba(255, 255, 255, 0.045);
 }
 
 .kd-toc-list a.active {
@@ -2844,13 +2829,14 @@ button {
 
 .kd-toc-number {
 	flex: 0 0 auto;
-	min-width: 1.35rem;
-	padding-top: 0.03rem;
+	min-width: 1.45rem;
+	padding-top: 0.02rem;
 	color: var(--kd-subtle);
 	font-family: "JetBrains Mono", monospace;
-	font-size: 0.59rem;
-	font-weight: 550;
+	font-size: 0.58rem;
+	font-weight: 450;
 	font-variant-numeric: tabular-nums;
+	line-height: 1.45;
 }
 
 .kd-toc-list a.active .kd-toc-number {
@@ -2860,13 +2846,19 @@ button {
 .kd-toc-label {
 	min-width: 0;
 	overflow-wrap: anywhere;
+	text-wrap: pretty;
 }
 
 .kd-toc-empty {
 	margin: 0;
-	color: var(--kd-subtle);
-	font-size: 0.72rem;
-	line-height: 1.55;
+	padding: 0.6rem 0.72rem 0.8rem;
+	color: var(--kd-muted);
+	font-size: 0.7rem;
+	line-height: 1.5;
+}
+
+.kd-battery-wrap {
+	padding-top: 0.45rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
