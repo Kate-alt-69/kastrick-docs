@@ -1,4 +1,17 @@
 {
+	"redirects": [
+		{
+			"source": "/share/:code([A-Za-z0-9]{8})",
+			"has": [
+				{
+					"type": "host",
+					"value": "k8d.vercel.app"
+				}
+			],
+			"destination": "https://kastrick-docs.vercel.app/share/:code",
+			"permanent": false
+		}
+	],
 	"rewrites": [
 		{
 			"source": "/share/:code",
