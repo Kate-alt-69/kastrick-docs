@@ -166,12 +166,25 @@ export default function DocsShell({
 	}>({ visible: false, left: 0, top: 0, text: "", anchor: "" });
 
 	const dropdownRef = useRef<HTMLDivElement | null>(null);
+	const mobileNavRef = useRef<HTMLElement | null>(null);
 	const articleRef = useRef<HTMLElement | null>(null);
 
 	const notify = (msg: string) => {
 		setToast(msg);
 		setTimeout(() => setToast(null), 2000);
 	};
+
+	// Dismiss the compact mobile navigation when the user taps outside it.
+	useEffect(() => {
+		if (!mobileNavOpen) return;
+		const onPointerDown = (event: PointerEvent) => {
+			if (mobileNavRef.current && !mobileNavRef.current.contains(event.target as Node)) {
+				setMobileNavOpen(false);
+			}
+		};
+		document.addEventListener("pointerdown", onPointerDown);
+		return () => document.removeEventListener("pointerdown", onPointerDown);
+	}, [mobileNavOpen]);
 
 	// Load persisted pins and notebook markings from localStorage.
 	useEffect(() => {
@@ -725,7 +738,7 @@ export default function DocsShell({
 			</header>
 
 			<div className="kd-grid">
-				<aside className="kd-sidebar" aria-label="Documentation navigation">
+				<aside ref={mobileNavRef} className="kd-sidebar" aria-label="Documentation navigation">
 					<button
 						type="button"
 						className="kd-mobile-nav-trigger"
@@ -745,7 +758,7 @@ export default function DocsShell({
 							<strong>{project.name}</strong>
 							<span>{track === "docs" ? "Documentation" : "Guides"}</span>
 						</div>
-						<div className="kd-track-switch" aria-label="Documentation track">
+						<div className="kd-track-switch" role="group" aria-label="Documentation track">
 							{(["docs", "guides"] as DocTrack[]).map((t) => {
 								const targetPage = project.pages.find((p) => p.track === t);
 								const href = targetPage ? `/${project.id}/${targetPage.slug}` : `/${project.id}`;
@@ -768,7 +781,7 @@ export default function DocsShell({
 									<details
 										key={sectionName}
 										className="kd-nav-group"
-										defaultOpen={items.some((item) => item.slug === page?.slug)}
+										open={items.some((item) => item.slug === page?.slug)}
 									>
 										<summary className="kd-nav-group-title">
 											<span>{sectionName}</span>
