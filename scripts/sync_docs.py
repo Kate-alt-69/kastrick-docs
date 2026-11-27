@@ -551,21 +551,36 @@ def fetch_repo_markdown(
 	project: dict[str, Any],
 	token: str | None,
 ) -> list[dict[str, Any]]:
-	"""Fetch every configured documentation generation independently."""
+	"""Fetch each documentation generation independently, with per-generation local fallback."""
 	generations = project.get("generations", [])
 	if not generations:
 		return fetch_repo_markdown_source(project, token)
 
 	pages: list[dict[str, Any]] = []
+	missing_generations: list[dict[str, Any]] = []
 	for generation in generations:
 		generation_pages = fetch_repo_markdown_source(project, token, generation)
 		if not generation_pages:
+			missing_generations.append(generation)
 			print(
 				f"[sync_docs] No pages returned for {project['name']} "
 				f"{generation.get('label', generation.get('id', 'generation'))} "
 				f"from {generation.get('branch', project.get('branch', 'main'))}."
 			)
 		pages.extend(generation_pages)
+
+	if missing_generations:
+		cached_pages = index_local_content(project)
+		for generation in missing_generations:
+			generation_id = generation.get("id")
+			fallback_pages = [page for page in cached_pages if page.get("generation") == generation_id]
+			if fallback_pages:
+				print(
+					f"[sync_docs] Retaining {len(fallback_pages)} cached "
+					f"{generation.get('label', 'generation')} pages because its source branch was unavailable."
+				)
+				pages.extend(fallback_pages)
+
 	return pages
 
 
