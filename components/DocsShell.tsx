@@ -390,7 +390,6 @@ export default function DocsShell({
 		};
 	}, [rawMarkdown]);
 
-	const activeTocItem = outlineItems.find((item) => item.id === activeTocId);
 
 	const filteredNotebook = useMemo(() => {
 		const search = notebookQuery.trim().toLowerCase();
@@ -779,76 +778,62 @@ export default function DocsShell({
 
 				<aside className="kd-toc" aria-label="On this page">
 					<div className="kd-toc-layout">
-						<section className="kd-toc-summary" aria-label="Page reading details">
-							<div className="kd-toc-eyebrow">DOCUMENT MAP</div>
-							<div className="kd-toc-summary-heading">
-								<h2 className="kd-toc-title">On this page</h2>
-								<span className="kd-toc-count">{String(outlineItems.length).padStart(2, "0")}</span>
-							</div>
-							<p className="kd-toc-page-title">{page?.title ?? project.name}</p>
-							<div className="kd-toc-stats">
-								<div>
-									<strong>{pageReadingStats.readingMinutes} min</strong>
-									<span>READ</span>
-								</div>
-								<div>
-									<strong>{pageReadingStats.wordCount.toLocaleString()}</strong>
-									<span>WORDS</span>
-								</div>
-								<div>
-									<strong>{outlineItems.length}</strong>
-									<span>SECTIONS</span>
-								</div>
-							</div>
-							<div className="kd-toc-progress">
-								<div className="kd-toc-progress-label">
-									<span>READING PROGRESS</span>
-									<strong>{articleProgress}%</strong>
-								</div>
-								<div
-									className="kd-toc-progress-track"
-									role="progressbar"
-									aria-label="Article reading progress"
-									aria-valuemin={0}
-									aria-valuemax={100}
-									aria-valuenow={articleProgress}
-								>
-									<span style={{ width: articleProgress + "%" }} />
-								</div>
-							</div>
-							{activeTocItem && (
-								<div className="kd-toc-current" aria-live="polite">
-									<span>YOU ARE READING</span>
-									<strong>{activeTocItem.text}</strong>
-								</div>
-							)}
-						</section>
-
 						<div className="kd-toc-row">
-							<nav className="kd-toc-outline" aria-label="Page sections">
-								<div className="kd-toc-outline-label">IN THIS DOCUMENT</div>
-								{outlineItems.length > 0 ? (
-									<ol className="kd-toc-list">
-										{outlineItems.map((item) => (
-											<li
-												key={item.id}
-												className={"level-" + item.level + (item.id === activeTocId ? " active" : "")}
-											>
-												<a
-													href={"#-es?move=" + encodeURIComponent(item.id) + "&offset=-84&duration=550"}
-													className={item.id === activeTocId ? "active" : ""}
-													aria-current={item.id === activeTocId ? "location" : undefined}
+							<div className="kd-toc-panel">
+								<section className="kd-toc-summary" aria-label="Page reading details">
+									<div className="kd-toc-panel-heading">
+										<h2 className="kd-toc-title">On this page</h2>
+										<span className="kd-toc-count">{outlineItems.length}</span>
+									</div>
+									<p className="kd-toc-page-title">{page?.title ?? project.name}</p>
+									<div className="kd-toc-meta">
+										<span>{pageReadingStats.readingMinutes} min read</span>
+										<span aria-hidden="true">·</span>
+										<span>{outlineItems.length} sections</span>
+									</div>
+									<div className="kd-toc-progress">
+										<div className="kd-toc-progress-label">
+											<span>Reading</span>
+											<strong>{articleProgress}%</strong>
+										</div>
+										<div
+											className="kd-toc-progress-track"
+											role="progressbar"
+											aria-label="Article reading progress"
+											aria-valuemin={0}
+											aria-valuemax={100}
+											aria-valuenow={articleProgress}
+										>
+											<span style={{ width: articleProgress + "%" }} />
+										</div>
+									</div>
+								</section>
+
+								<nav className="kd-toc-outline" aria-label="Page sections">
+									<div className="kd-toc-outline-label">Contents</div>
+									{outlineItems.length > 0 ? (
+										<ol className="kd-toc-list">
+											{outlineItems.map((item) => (
+												<li
+													key={item.id}
+													className={"level-" + item.level + (item.id === activeTocId ? " active" : "")}
 												>
-													<span className="kd-toc-number">{item.number}</span>
-													<span className="kd-toc-label">{item.text}</span>
-												</a>
-											</li>
-										))}
-									</ol>
-								) : (
-									<p className="kd-toc-empty">This page has no section headings.</p>
-								)}
-							</nav>
+													<a
+														href={"#-es?move=" + encodeURIComponent(item.id) + "&offset=-84&duration=550"}
+														className={item.id === activeTocId ? "active" : ""}
+														aria-current={item.id === activeTocId ? "location" : undefined}
+													>
+														<span className="kd-toc-number" aria-hidden="true">{item.number}</span>
+														<span className="kd-toc-label">{item.text}</span>
+													</a>
+												</li>
+											))}
+										</ol>
+									) : (
+										<p className="kd-toc-empty">No section headings on this page.</p>
+									)}
+								</nav>
+							</div>
 
 							{showBattery && (
 								<div className="kd-battery-wrap">
