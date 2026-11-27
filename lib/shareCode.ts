@@ -6,6 +6,12 @@
 const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const BASE = BigInt(ALPHABET.length);
 
+/** Public short-link host used when copying generated documentation share URLs. */
+export const SHARE_LINK_ORIGIN = "https://k8d.vercel.app";
+
+/** Canonical site that owns documentation pages and resolves shared targets. */
+export const CANONICAL_DOCS_ORIGIN = "https://kastrick-docs.vercel.app";
+
 /** Values at or above this number represent page.toc heading indexes; lower values are L# anchors. */
 export const SHARE_HEADING_ANCHOR_BASE = 2048;
 
