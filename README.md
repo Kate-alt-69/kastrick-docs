@@ -1,13 +1,13 @@
 # Kastrick Docs
 
-Official static documentation and guides hub for the **Kastrick** ecosystem, powered by **Next.js Engine (Generation 3 / NES)**.
+Official static documentation and guides hub for the **Kastrick** ecosystem. The site is powered by **Next.js Engine Generation 3 (NES)** and publishes Engine generations as separate documentation archives.
 
 ## Projects Covered
 
 | Project | Repository | Status |
 |---------|------------|--------|
 | **RBE** | [Kastrick8/RBE](https://github.com/Kastrick8/RBE) | Active |
-| **Next.js Engine** | [Kastrick8/nextjs-engine](https://github.com/Kastrick8/nextjs-engine) | Alpha (Rebase in progress) |
+| **Next.js Engine** | [Kastrick8/nextjs-engine](https://github.com/Kastrick8/nextjs-engine) | Gen 3 Alpha · Gen 2 stable archive |
 | **PackageX** | `Package-X/packagex` | `NOT_EST` |
 | **PackX** | `Package-X/packx` | `NOT_EST` |
 | **PackageX SDKs** | `Package-X/packagex` | `NOT_EST` |
@@ -15,10 +15,19 @@ Official static documentation and guides hub for the **Kastrick** ecosystem, pow
 
 ## Features
 
-- **Static Per-Build Sync (`scripts/sync_docs.py`):** Downloads live Markdown documentation from established repositories at build time (zero runtime network calls), rewrites relative links to `/<project>/<slug>` and `EngineScroll` `#-es` anchors, and emits static HTML via `output: "export"`.
+- **Generation-aware static sync (`scripts/sync_docs.py`):** Downloads each configured source generation from its own branch. Next.js Engine Gen 3 is sourced from `main-3` (`docs/3/`) and the stable Gen 2 archive from `main-2` (`docs/2/`); each gets separate page metadata, search entries, and Docs/Guides navigation. Relative links are rewritten to `/<project>/<source-path>` and EngineScroll `#-es` anchors before static export.
 - **Automatic GREEN-CI Engine Sync (`scripts/sync_engine.py`):** Tracks the latest passing CI commit on `Kastrick8/nextjs-engine` and updates `src/engine/` atomically.
-- **EngineScroll Share URLs & `/share/<8char>`:** Click the vertical scroll-progress battery on the right rail to generate a deterministic 8-character Base62 share link encoding project, track, page, line, and scroll level (with Vercel Analytics tracking).
+- **EngineScroll Share URLs & `/share/<8char>`:** Click the vertical scroll-progress battery on the right rail to generate a deterministic 8-character Base62 share link encoding project, generation, track, page, line, and scroll level. Existing pre-generation links remain readable as Gen 3.
 - **Pinning & Notebook:** Save highlighted passages locally, search and filter notes across projects, jump back to their source location, copy quotes, edit annotations, and export the Notebook as Markdown.
+
+## Next.js Engine documentation generations
+
+The Next.js Engine project index publishes two independently generated tracks:
+
+- **Generation 3:** `main-3` → `docs/3/` (current alpha documentation).
+- **Generation 2:** `main-2` → `docs/2/` (stable 2.x archive).
+
+Each generation has its own Reference/Docs and Guides groups. The generation selector changes the active source track; it does not combine Gen 2 and Gen 3 pages into one tree.
 
 ## Local Development
 

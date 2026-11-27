@@ -1,7 +1,6 @@
 // lib/shareCode.ts — Deterministic 8-character Base62 share code encoder/decoder.
-// Packs project index, track (docs/guides), page index, exact line/anchor index,
-// and scroll level percentage (0-100) into an 8-char /share/<8char> token with a
-// lightweight checksum — no database required.
+// Packs project, generation, track, page, exact line/anchor, and scroll level into
+// an 8-character Base62 /share/<code> token with a lightweight checksum.
 
 const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const BASE = BigInt(ALPHABET.length);
@@ -18,12 +17,13 @@ export const SHARE_HEADING_ANCHOR_BASE = 2048;
 export interface SharePayload {
 	projectIdx: number; // 0..15  (4 bits)
 	trackIdx: number;   // 0..1   (1 bit: 0 = docs, 1 = guides)
-	pageIdx: number;    // 0..127 (7 bits)
+	generationIdx: number; // 0 = Generation 3; 1 = archived Generation 2
+	pageIdx: number;    // 0..511 (9 bits)
 	lineIdx: number;    // 0 = top, 1..2047 = L# line, 2048..4095 = TOC heading index
 	levelPct: number;   // 0..100 (7 bits)
 }
 
-/** Compute an 11-bit integrity checksum for a packed 31-bit payload. */
+/** Compute an 11-bit integrity checksum for a packed generation-aware payload. */
 function computeChecksum(packed: bigint): bigint {
 	const mixed = (packed * BigInt(2654435761)) ^ (packed >> BigInt(11));
 	return mixed & BigInt(0x7ff);
@@ -33,13 +33,18 @@ function computeChecksum(packed: bigint): bigint {
 export function encodeShareCode(payload: SharePayload): string {
 	const p = BigInt(payload.projectIdx & 0xf);
 	const t = BigInt(payload.trackIdx & 0x1);
-	const pg = BigInt(payload.pageIdx & 0x7f);
+	const generation = BigInt(payload.generationIdx & 0x1);
+	const pg = BigInt(payload.pageIdx & 0x1ff);
 	const ln = BigInt(payload.lineIdx & 0xfff);
 	const lvl = BigInt(Math.max(0, Math.min(100, Math.round(payload.levelPct))) & 0x7f);
 
+	// Bit 34 marks the generation-aware layout. New codes support up to 512 pages per generation; older 8-character codes never
+	// used this bit, so existing shared links continue to resolve as Gen 3.
 	const body =
-		(p << BigInt(27)) |
-		(t << BigInt(26)) |
+		(BigInt(1) << BigInt(34)) |
+		(p << BigInt(30)) |
+		(t << BigInt(29)) |
+		(generation << BigInt(28)) |
 		(pg << BigInt(19)) |
 		(ln << BigInt(7)) |
 		lvl;
@@ -76,11 +81,15 @@ export function decodeShareCode(code: string): SharePayload | null {
 		return null;
 	}
 
+	const hasGenerationMarker = (body & (BigInt(1) << BigInt(34))) !== BigInt(0);
 	const levelPct = Number(body & BigInt(0x7f));
 	const lineIdx = Number((body >> BigInt(7)) & BigInt(0xfff));
-	const pageIdx = Number((body >> BigInt(19)) & BigInt(0x7f));
-	const trackIdx = Number((body >> BigInt(26)) & BigInt(0x1));
-	const projectIdx = Number((body >> BigInt(27)) & BigInt(0xf));
+	const pageIdx = Number((body >> BigInt(19)) & BigInt(hasGenerationMarker ? 0x1ff : 0x7f));
+	const trackIdx = Number((body >> BigInt(hasGenerationMarker ? 29 : 26)) & BigInt(0x1));
+	const projectIdx = Number((body >> BigInt(hasGenerationMarker ? 30 : 27)) & BigInt(0xf));
+	const generationIdx = hasGenerationMarker
+		? Number((body >> BigInt(28)) & BigInt(0x1))
+		: 0;
 
-	return { projectIdx, trackIdx, pageIdx, lineIdx, levelPct };
+	return { projectIdx, trackIdx, generationIdx, pageIdx, lineIdx, levelPct };
 }

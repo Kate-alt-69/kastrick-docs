@@ -52,6 +52,8 @@ interface DocsSearchEntry {
 	projectId: string;
 	projectName: string;
 	track: DocTrack;
+	generation?: string;
+	generationLabel?: string;
 	slug: string;
 	title: string;
 	section: string;
@@ -69,6 +71,8 @@ function isDocsSearchEntry(value: unknown): value is DocsSearchEntry {
 	return typeof item.projectId === "string" &&
 		typeof item.projectName === "string" &&
 		(item.track === "docs" || item.track === "guides") &&
+		(item.generation === undefined || item.generation === null || typeof item.generation === "string") &&
+		(item.generationLabel === undefined || item.generationLabel === null || typeof item.generationLabel === "string") &&
 		typeof item.slug === "string" &&
 		typeof item.title === "string" &&
 		typeof item.section === "string" &&
@@ -178,6 +182,8 @@ export default function DocsShell({
 	rawMarkdown,
 }: DocsShellProps) {
 	const router = useRouter();
+	const activeGeneration = page?.generation ?? project.generations?.[0]?.id ?? null;
+	const activeGenerationRecord = project.generations?.find((generation) => generation.id === activeGeneration);
 	const [projectsOpen, setProjectsOpen] = useState(false);
 	const [pagesOpen, setPagesOpen] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -327,11 +333,11 @@ export default function DocsShell({
 		})).then((loaded) => {
 			if (cancelled) return;
 			setSearchIndex((current) => {
-				const seen = new Set(current.map((item) => item.projectId + "/" + item.track + "/" + item.slug));
+				const seen = new Set(current.map((item) => item.projectId + "/" + item.track + "/" + (item.generation ?? "") + "/" + item.slug));
 				return [
 					...current,
 					...loaded.flat().filter((item) => {
-						const key = item.projectId + "/" + item.track + "/" + item.slug;
+						const key = item.projectId + "/" + item.track + "/" + (item.generation ?? "") + "/" + item.slug;
 						if (seen.has(key)) return false;
 						seen.add(key);
 						return true;
@@ -650,8 +656,10 @@ export default function DocsShell({
 	}, []);
 
 	const trackPages = useMemo(
-		() => project.pages.filter((p) => p.track === track),
-		[project.pages, track],
+		() => project.pages.filter((p) =>
+			p.track === track && (!activeGeneration || p.generation === activeGeneration)
+		),
+		[project.pages, track, activeGeneration],
 	);
 
 	const sidebarGroups = useMemo(() => {
@@ -660,7 +668,7 @@ export default function DocsShell({
 			(acc[section] ||= []).push(item);
 			return acc;
 		}, {});
-		const sectionOrder = new Map((project.sectionOrder ?? []).map((section, index) => [section, index]));
+		const sectionOrder = new Map((activeGenerationRecord?.sectionOrder ?? project.sectionOrder ?? []).map((section, index) => [section, index]));
 
 		return Object.entries(grouped)
 			.map(([sectionName, items]) => ({ sectionName, items }))
@@ -672,7 +680,7 @@ export default function DocsShell({
 				}
 				return a.sectionName.localeCompare(b.sectionName);
 			});
-	}, [trackPages, track, project.sectionOrder]);
+	}, [trackPages, track, project.sectionOrder, activeGenerationRecord]);
 
 	const outlineItems = useMemo(() => {
 		let sectionNumber = 0;
@@ -736,7 +744,8 @@ export default function DocsShell({
 				(titleMatches ? 1000 : 0) +
 				tokens.reduce((total, token) => total + (title.includes(token) ? 90 : 30), 0) +
 				(item.projectId === project.id ? 40 : 0) +
-				(item.track === track ? 10 : 0);
+				(item.track === track ? 10 : 0) +
+				(item.generation === activeGeneration ? 25 : 0);
 			hits.push({
 				...item,
 				score,
@@ -745,7 +754,7 @@ export default function DocsShell({
 		}
 
 		return hits.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, 30);
-	}, [searchIndex, query, searchScope, project.id, track]);
+	}, [searchIndex, query, searchScope, project.id, track, activeGeneration]);
 
 	useEffect(() => {
 		setSelectedSearchIndex(0);
@@ -781,6 +790,10 @@ export default function DocsShell({
 			0,
 			trackPages.findIndex((p) => p.slug === page?.slug),
 		);
+		const generationIdx = Math.max(
+			0,
+			project.generations?.findIndex((generation) => generation.id === activeGeneration) ?? 0,
+		);
 		const lineMatch = lastAnchor.match(/^L(\d+)$/);
 		const headingIdx = page?.toc.findIndex((item) => item.id === lastAnchor) ?? -1;
 		const parsedLine = lineMatch ? Number(lineMatch[1]) : 0;
@@ -792,6 +805,7 @@ export default function DocsShell({
 		const code = encodeShareCode({
 			projectIdx,
 			trackIdx: track === "guides" ? 1 : 0,
+			generationIdx,
 			pageIdx,
 			lineIdx,
 			levelPct: scrollPct,
@@ -806,6 +820,7 @@ export default function DocsShell({
 				code,
 				project: project.id,
 				track,
+				generation: activeGeneration ?? "unversioned",
 				slug: page?.slug ?? "overview",
 				levelPct: scrollPct,
 			});
@@ -1024,7 +1039,7 @@ export default function DocsShell({
 											>
 												<div className="kd-dropdown-item-head">
 													<span>/{project.id}/{item.slug}</span>
-													<span className="kd-badge-notest">{item.track.toUpperCase()}</span>
+													<span className="kd-badge-notest">{[item.generationLabel, item.track.toUpperCase()].filter(Boolean).join(" · ")}</span>
 												</div>
 												<small>{item.title}</small>
 											</Link>
@@ -1089,7 +1104,7 @@ export default function DocsShell({
 								)}
 								{query.trim() && searchResults.map((result, index) => (
 									<button
-										key={result.projectId + "/" + result.track + "/" + result.slug}
+										key={result.projectId + "/" + result.track + "/" + (result.generation ?? "") + "/" + result.slug}
 										type="button"
 										id={"kd-search-result-" + index}
 										role="option"
@@ -1100,7 +1115,7 @@ export default function DocsShell({
 									>
 										<span className="kd-search-result-top">
 											<strong>{result.title}</strong>
-											<small>{result.projectName} · {result.section} · {result.track.toUpperCase()}</small>
+											<small>{result.projectName} · {result.generationLabel ? result.generationLabel + " · " : ""}{result.section} · {result.track.toUpperCase()}</small>
 										</span>
 										<span className="kd-search-result-snippet">{result.snippet}</span>
 									</button>
@@ -1142,7 +1157,7 @@ export default function DocsShell({
 						onClick={() => setMobileNavOpen((open) => !open)}
 					>
 						<span className="kd-mobile-nav-copy">
-							<span className="kd-mobile-nav-label">{project.name} documentation</span>
+							<span className="kd-mobile-nav-label">{project.name}{activeGenerationRecord ? " · " + activeGenerationRecord.label : ""} documentation</span>
 							<strong className="kd-mobile-nav-current">{page?.title ?? project.name}</strong>
 						</span>
 						<span className="kd-mobile-nav-action">{mobileNavOpen ? "Close" : "Browse"}</span>
@@ -1151,12 +1166,40 @@ export default function DocsShell({
 					<div id="kd-sidebar-content" className={`kd-sidebar-content ${mobileNavOpen ? "is-open" : ""}`}>
 						<div className="kd-sidebar-project">
 							<strong>{project.name}</strong>
-							<span>{track === "docs" ? "Documentation" : "Guides"}</span>
+							<span>{activeGenerationRecord ? activeGenerationRecord.label + " / " : ""}{track === "docs" ? "Documentation" : "Guides"}</span>
 						</div>
+						{project.generations && project.generations.length > 1 && (
+							<div className="kd-generation-switch" role="group" aria-label="Documentation generation">
+								{project.generations.map((generation) => {
+									const targetPage = track === "docs"
+										? project.pages.find((p) => p.generation === generation.id && p.slug === generation.defaultSlug)
+											?? project.pages.find((p) => p.generation === generation.id && p.track === track)
+										: project.pages.find((p) => p.generation === generation.id && p.track === track)
+										?? project.pages.find((p) => p.generation === generation.id);
+									const href = targetPage
+									? `/${project.id}/${targetPage.slug}`
+									: `/${project.id}/${generation.defaultSlug}`;
+									return (
+										<Link
+											key={generation.id}
+											href={href}
+											className={`kd-generation-btn ${activeGeneration === generation.id ? "active" : ""}`}
+											aria-current={activeGeneration === generation.id ? "page" : undefined}
+											onClick={() => setMobileNavOpen(false)}
+										>
+											<strong>{generation.label}</strong>
+											<small>{generation.version}</small>
+										</Link>
+									);
+								})}
+							</div>
+						)}
 						<div className="kd-track-switch" role="group" aria-label="Documentation track">
 							{(["docs", "guides"] as DocTrack[]).map((t) => {
-								const targetPage = project.pages.find((p) => p.track === t);
-								const href = targetPage ? `/${project.id}/${targetPage.slug}` : `/${project.id}`;
+								const targetPage = project.pages.find((p) => p.track === t && (!activeGeneration || p.generation === activeGeneration));
+								const href = targetPage
+									? `/${project.id}/${targetPage.slug}`
+									: activeGenerationRecord ? `/${project.id}/${activeGenerationRecord.defaultSlug}` : `/${project.id}`;
 								return (
 									<Link
 									key={t}

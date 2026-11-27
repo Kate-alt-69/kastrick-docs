@@ -94,6 +94,8 @@ def write_search_index(projects: list[dict[str, Any]], generated_at: str) -> int
 				"projectId": project["id"],
 				"projectName": project["name"],
 				"track": page["track"],
+				"generation": page.get("generation"),
+				"generationLabel": page.get("generationLabel"),
 				"slug": page["slug"],
 				"title": page["title"],
 				"section": page.get("section", "Documentation"),
@@ -230,6 +232,15 @@ def write_migration_manifest(projects: list[dict[str, Any]], generated_at: str) 
 	)
 	engine_fallback = engine_index["url"] if engine_index else DOCS_PUBLIC_ORIGIN + "/nextjs-engine/docs/3/index"
 	engine_migration = DOCS_PUBLIC_ORIGIN + "/nextjs-engine/docs/3/migration-from-2x"
+	engine_gen2_index = next(
+		(
+			page for project in project_entries if project["id"] == "nextjs-engine"
+			for page in project["pages"] if page["sourcePath"] == "docs/2/index.md"
+		),
+		None,
+	)
+	engine_gen2_fallback = engine_gen2_index["url"] if engine_gen2_index else DOCS_PUBLIC_ORIGIN + "/nextjs-engine/docs/2"
+	engine_v1_trap = DOCS_PUBLIC_ORIGIN + "/nextjs-engine/v1"
 	for legacy_root in (
 		"/project/nextjs-engine/doc",
 		"/product/nextjs-engine/doc",
@@ -243,8 +254,18 @@ def write_migration_manifest(projects: list[dict[str, Any]], generated_at: str) 
 
 	prefix_fallbacks = [
 		{"fromPrefix": "/project/rbe/doc", "to": DOCS_PUBLIC_ORIGIN + "/rbe/doc", "mode": "append-suffix", "projectId": "rbe"},
-		{"fromPrefix": "/project/nextjs-engine/doc/2", "to": engine_migration, "mode": "fixed", "projectId": "nextjs-engine"},
-		{"fromPrefix": "/product/nextjs-engine/doc/2", "to": engine_migration, "mode": "fixed", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/project/nextjs-engine/doc/1", "to": engine_v1_trap, "mode": "fixed", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/product/nextjs-engine/doc/1", "to": engine_v1_trap, "mode": "fixed", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/project/nextjs-engine/doc/v1", "to": engine_v1_trap, "mode": "fixed", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/product/nextjs-engine/doc/v1", "to": engine_v1_trap, "mode": "fixed", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/project/nextjs-engine/doc/gen1", "to": engine_v1_trap, "mode": "fixed", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/product/nextjs-engine/doc/gen1", "to": engine_v1_trap, "mode": "fixed", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/project/nextjs-engine/doc/gen-1", "to": engine_v1_trap, "mode": "fixed", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/product/nextjs-engine/doc/gen-1", "to": engine_v1_trap, "mode": "fixed", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/project/nextjs-engine/doc/docs/1", "to": engine_v1_trap, "mode": "fixed", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/product/nextjs-engine/doc/docs/1", "to": engine_v1_trap, "mode": "fixed", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/project/nextjs-engine/doc/2", "to": engine_gen2_fallback, "mode": "append-suffix", "projectId": "nextjs-engine"},
+		{"fromPrefix": "/product/nextjs-engine/doc/2", "to": engine_gen2_fallback, "mode": "append-suffix", "projectId": "nextjs-engine"},
 		{"fromPrefix": "/project/nextjs-engine/doc/gen3", "to": engine_fallback, "mode": "fixed", "projectId": "nextjs-engine"},
 		{"fromPrefix": "/product/nextjs-engine/doc/gen3", "to": engine_fallback, "mode": "fixed", "projectId": "nextjs-engine"},
 		{"fromPrefix": "/project/nextjs-engine/doc", "to": engine_fallback, "mode": "fixed", "projectId": "nextjs-engine"},
@@ -423,14 +444,16 @@ def download_branch_zip(repo: str, branch: str, token: str | None) -> bytes | No
 	return None
 
 
-def fetch_repo_markdown(
+def fetch_repo_markdown_source(
 	project: dict[str, Any],
 	token: str | None,
+	generation: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-	"""Fetch authoritative Markdown docs for a project, preserving repo section hierarchy."""
+	"""Fetch one source branch, optionally annotating pages with a generation."""
+	source = {**project, **(generation or {})}
 	repo = project["repo"]
-	branches = [project.get("branch", "main")]
-	fallback = project.get("fallbackBranch")
+	branches = [source.get("branch", "main")]
+	fallback = source.get("fallbackBranch")
 	if fallback and fallback not in branches:
 		branches.append(fallback)
 
@@ -445,11 +468,13 @@ def fetch_repo_markdown(
 	if archive_bytes is None:
 		return []
 
-	docs_prefixes = [p.strip("/") for p in project.get("docsPaths", ["doc", "docs", "README.md"])]
-	guides_prefixes = [p.strip("/") for p in project.get("guidesPaths", ["guides"])]
-	exclude_prefixes = [p.strip("/") for p in project.get("excludePaths", [])]
-	section_map: dict[str, str] = project.get("sectionMap", {})
+	docs_prefixes = [p.strip("/") for p in source.get("docsPaths", ["doc", "docs", "README.md"])]
+	guides_prefixes = [p.strip("/") for p in source.get("guidesPaths", ["guides"])]
+	exclude_prefixes = [p.strip("/") for p in source.get("excludePaths", [])]
+	section_map: dict[str, str] = source.get("sectionMap", {})
 	allowed_prefixes = docs_prefixes + guides_prefixes
+	generation_id = generation.get("id") if generation else None
+	generation_label = generation.get("label") if generation else None
 
 	raw_entries: list[tuple[str, str, str, str, str]] = []
 	seen_slugs: set[str] = set()
@@ -470,13 +495,10 @@ def fetch_repo_markdown(
 			content = zf.read(member).decode("utf-8", errors="replace")
 			track = classify_track(rel_path, guides_prefixes)
 			section = resolve_section(rel_path, section_map, track)
-
-			stem = Path(rel_path).stem
 			slug = route_path_from_markdown(rel_path)
 
 			if slug in seen_slugs:
-				# A sibling file can collide with a directory README route. Keep the
-				# full source path rather than flattening it into an unrelated slug.
+				# Keep ambiguous README/file collisions on their full source path.
 				slug = posixpath.splitext(rel_path)[0]
 				if slug in seen_slugs:
 					raise ValueError(f"Duplicate documentation route `/{project['id']}/{slug}` from {rel_path}")
@@ -506,18 +528,44 @@ def fetch_repo_markdown(
 		out_file.parent.mkdir(parents=True, exist_ok=True)
 		out_file.write_text(rewritten, encoding="utf-8")
 
-		pages.append({
+		page = {
 			"slug": slug,
 			"track": track,
 			"section": section,
 			"title": title,
 			"sourcePath": rel_path,
 			"sourceBranch": used_branch,
-			"localFile": str(out_file.relative_to(REPO_ROOT)).replace("\\", "/"),
+			"localFile": str(out_file.relative_to(REPO_ROOT)).replace(chr(92), "/"),
 			"toc": toc,
-		})
+		}
+		if generation_id is not None:
+			page["generation"] = generation_id
+			page["generationLabel"] = generation_label or ("Generation " + str(generation_id))
+		pages.append(page)
 
-	print(f"[sync_docs] Synced {len(pages)} structured static pages for {project['name']}.")
+	print(f"[sync_docs] Synced {len(pages)} {generation_label + ' ' if generation_label else ''}pages for {project['name']} from {used_branch}.")
+	return pages
+
+
+def fetch_repo_markdown(
+	project: dict[str, Any],
+	token: str | None,
+) -> list[dict[str, Any]]:
+	"""Fetch every configured documentation generation independently."""
+	generations = project.get("generations", [])
+	if not generations:
+		return fetch_repo_markdown_source(project, token)
+
+	pages: list[dict[str, Any]] = []
+	for generation in generations:
+		generation_pages = fetch_repo_markdown_source(project, token, generation)
+		if not generation_pages:
+			print(
+				f"[sync_docs] No pages returned for {project['name']} "
+				f"{generation.get('label', generation.get('id', 'generation'))} "
+				f"from {generation.get('branch', project.get('branch', 'main'))}."
+			)
+		pages.extend(generation_pages)
 	return pages
 
 
@@ -547,7 +595,7 @@ def index_local_content(project: dict[str, Any]) -> list[dict[str, Any]]:
 			local_file = str(md_file.relative_to(REPO_ROOT)).replace("\\", "/")
 			previous = previous_by_file.get(local_file, {})
 			source_path = previous.get("sourcePath") or str(md_file.relative_to(track_dir)).replace("\\", "/")
-			slug = route_path_from_markdown(source_path)
+			slug = previous.get("slug") or route_path_from_markdown(source_path)
 			content = md_file.read_text(encoding="utf-8")
 			stem = Path(source_path).stem
 			if stem.lower() in ("readme", "index"):
@@ -556,16 +604,32 @@ def index_local_content(project: dict[str, Any]) -> list[dict[str, Any]]:
 				title_stem = stem
 			fallback_title = title_stem.replace("-", " ").replace("_", " ").replace(".", " ").title()
 			title, toc = extract_title_and_toc(content, fallback_title)
-			pages.append({
+			generation = next(
+				(
+					item for item in project.get("generations", [])
+					if any(
+						source_path == prefix.strip("/") or source_path.startswith(prefix.strip("/") + "/")
+						for prefix in item.get("docsPaths", []) + item.get("guidesPaths", [])
+					)
+				),
+				None,
+			)
+			section_map = generation.get("sectionMap", {}) if generation else project.get("sectionMap", {})
+			page = {
 				"slug": slug,
 				"track": track,
-				"section": previous.get("section") or ("Guides" if track == "guides" else "Core Architecture"),
+				"section": previous.get("section") or resolve_section(source_path, section_map, track),
 				"title": title,
 				"sourcePath": source_path,
-				"sourceBranch": previous.get("sourceBranch") or project.get("branch", "main"),
+				"sourceBranch": previous.get("sourceBranch") or (generation or project).get("branch", "main"),
 				"localFile": local_file,
 				"toc": toc,
-			})
+			}
+			generation_id = previous.get("generation") or (generation.get("id") if generation else None)
+			if generation_id is not None:
+				page["generation"] = generation_id
+				page["generationLabel"] = previous.get("generationLabel") or generation.get("label", "Generation " + str(generation_id))
+			pages.append(page)
 	return pages
 
 

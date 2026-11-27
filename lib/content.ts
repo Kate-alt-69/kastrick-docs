@@ -13,9 +13,20 @@ export interface TocItem {
 	id: string;
 }
 
+export interface DocGeneration {
+	id: string;
+	label: string;
+	version: string;
+	branch: string;
+	defaultSlug: string;
+	sectionOrder?: string[];
+}
+
 export interface DocPageMeta {
 	slug: string;
 	track: DocTrack;
+	generation?: string;
+	generationLabel?: string;
 	section?: string;
 	title: string;
 	sourcePath: string;
@@ -26,6 +37,7 @@ export interface DocPageMeta {
 
 export interface ProjectRecord {
 	id: string;
+	generations?: DocGeneration[];
 	name: string;
 	repo: string;
 	repoUrl: string;

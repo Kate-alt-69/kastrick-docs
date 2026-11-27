@@ -10,9 +10,11 @@ export default function SharePage() {
 	const manifest = loadManifest();
 	const projects = manifest.projects.map((project) => ({
 		id: project.id,
+		generations: project.generations?.map((generation) => ({ id: generation.id })),
 		pages: project.pages.map((page) => ({
 			slug: page.slug,
 			track: page.track,
+			generation: page.generation,
 			toc: page.toc.map((item) => ({ id: item.id })),
 		})),
 	}));

@@ -13,11 +13,13 @@ import {
 interface ShareTargetPage {
 	slug: string;
 	track: "docs" | "guides";
+	generation?: string;
 	toc: Array<{ id: string }>;
 }
 
 interface ShareTargetProject {
 	id: string;
+	generations?: Array<{ id: string }>;
 	pages: ShareTargetPage[];
 }
 
@@ -52,7 +54,11 @@ export default function ShareResolver({ projects }: ShareResolverProps) {
 		}
 
 		const trackName = decoded.trackIdx === 1 ? "guides" : "docs";
-		const trackPages = project.pages.filter((page) => page.track === trackName);
+		const generation = project.generations?.[decoded.generationIdx] ?? project.generations?.[0];
+		const generationPages = generation
+			? project.pages.filter((page) => page.generation === generation.id)
+			: project.pages;
+		const trackPages = generationPages.filter((page) => page.track === trackName);
 		const targetPage = trackPages[decoded.pageIdx];
 		if (!targetPage) {
 			setStatus("invalid");
@@ -78,6 +84,7 @@ export default function ShareResolver({ projects }: ShareResolverProps) {
 				code,
 				project: project.id,
 				track: trackName,
+				generation: generation?.id ?? "unversioned",
 				page: targetPage.slug,
 				line: targetAnchor,
 				levelPct: decoded.levelPct,
