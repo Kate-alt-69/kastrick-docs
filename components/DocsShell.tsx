@@ -220,15 +220,11 @@ export default function DocsShell({
 	const articleRef = useRef<HTMLElement | null>(null);
 	const searchInputRef = useRef<HTMLInputElement | null>(null);
 	const searchPanelRef = useRef<HTMLDivElement | null>(null);
+	const openSearchResultRef = useRef<(result: DocsSearchResult) => void>(() => {});
 
 	const notify = (msg: string) => {
 		setToast(msg);
 		setTimeout(() => setToast(null), 2000);
-	};
-
-	const openSearch = () => {
-		setSearchOpen(true);
-		window.requestAnimationFrame(() => searchInputRef.current?.focus());
 	};
 
 	const closeSearch = () => {
@@ -243,21 +239,19 @@ export default function DocsShell({
 	};
 
 	const toggleSearchPin = () => {
-		setSearchPinned((current) => {
-			const next = !current;
-			try {
-				if (next) {
-					sessionStorage.setItem("kastrick-docs-search-pinned", "1");
-					sessionStorage.setItem("kastrick-docs-search-query", query);
-				} else {
-					sessionStorage.removeItem("kastrick-docs-search-pinned");
-					sessionStorage.removeItem("kastrick-docs-search-query");
-				}
-			} catch {
-				// Pinning still works for the current page without session storage.
+		const next = !searchPinned;
+		setSearchPinned(next);
+		try {
+			if (next) {
+				sessionStorage.setItem("kastrick-docs-search-pinned", "1");
+				sessionStorage.setItem("kastrick-docs-search-query", query);
+			} else {
+				sessionStorage.removeItem("kastrick-docs-search-pinned");
+				sessionStorage.removeItem("kastrick-docs-search-query");
 			}
-			return next;
-		});
+		} catch {
+			// Pinning still works for the current page without session storage.
+		}
 	};
 
 	const openSearchResult = (result: DocsSearchResult) => {
@@ -278,6 +272,7 @@ export default function DocsShell({
 			"/" + result.projectId + "/" + result.slug + "?kd-find=" + encodeURIComponent(term),
 		);
 	};
+	openSearchResultRef.current = openSearchResult;
 
 
 	useEffect(() => {
@@ -759,7 +754,7 @@ export default function DocsShell({
 				setSelectedSearchIndex((current) => Math.max(0, current - 1));
 			} else if (event.key === "Enter" && searchResults[selectedSearchIndex]) {
 				event.preventDefault();
-				openSearchResult(searchResults[selectedSearchIndex]);
+				openSearchResultRef.current(searchResults[selectedSearchIndex]);
 			}
 		};
 		document.addEventListener("keydown", onSearchKeys);
