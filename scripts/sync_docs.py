@@ -93,14 +93,19 @@ def classify_track(repo_path: str, guides_paths: list[str]) -> str:
 
 
 def resolve_section(repo_path: str, section_map: dict[str, str], track: str) -> str:
-	"""Resolve a human-readable sidebar section from the file's repo folder hierarchy."""
-	parent = posixpath.dirname(repo_path).strip("/")
+	"""Resolve a human-readable sidebar section from an exact page rule or folder hierarchy."""
+	normalized_path = repo_path.strip("/")
+	exact_section = section_map.get(normalized_path)
+	if exact_section:
+		return exact_section
+
+	parent = posixpath.dirname(normalized_path).strip("/")
 	if parent:
-		# Match longest configured prefix in sectionMap first (e.g. docs/3/ne/compiler before docs/3/ne).
+		# Match longest configured folder prefix (e.g. docs/3/ne/compiler before docs/3/ne).
 		sorted_keys = sorted(section_map.keys(), key=len, reverse=True)
 		for key in sorted_keys:
 			k = key.strip("/")
-			if parent == k or parent.startswith(k + "/"):
+			if not k.endswith(".md") and (parent == k or parent.startswith(k + "/")):
 				return section_map[key]
 		# Fallback to clean title-cased folder name.
 		leaf = parent.split("/")[-1]
