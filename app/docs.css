@@ -214,9 +214,10 @@ button {
 
 .kd-grid {
 	display: grid;
-	grid-template-columns: 260px minmax(0, 1fr) 268px;
-	max-width: 1420px;
-	margin: 0 auto;
+	width: 100%;
+	max-width: none;
+	grid-template-columns: 288px minmax(0, 1fr) 304px;
+	margin: 0;
 	min-height: calc(100vh - 58px);
 }
 
@@ -225,16 +226,58 @@ button {
 	position: sticky;
 	top: 58px;
 	height: calc(100vh - 58px);
+	min-height: 0;
 	overflow-y: auto;
 	overflow-x: hidden;
-	padding: 1.5rem 1.25rem;
 }
 
 .kd-sidebar {
+	display: flex;
+	flex-direction: column;
+	padding: 1.2rem 0.9rem 1.4rem;
 	border-right: 1px solid var(--kd-border);
 }
 
+.kd-sidebar-content {
+	display: flex;
+	min-height: 100%;
+	flex-direction: column;
+}
+
+.kd-sidebar-project {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 0.15rem 0.6rem 0.85rem;
+	margin-bottom: 0.85rem;
+	border-bottom: 1px solid var(--kd-border);
+}
+
+.kd-sidebar-project strong {
+	min-width: 0;
+	color: var(--kd-text);
+	font-size: 0.84rem;
+	font-weight: 650;
+	letter-spacing: -0.015em;
+}
+
+.kd-sidebar-project span {
+	flex: 0 0 auto;
+	color: var(--kd-subtle);
+	font-size: 0.65rem;
+}
+
+.kd-sidebar-navigation {
+	min-height: 0;
+}
+
+.kd-mobile-nav-trigger {
+	display: none;
+}
+
 .kd-toc {
+	padding: 1.5rem 1.1rem;
 	border-left: 1px solid var(--kd-border);
 }
 
@@ -243,20 +286,20 @@ button {
 .kd-track-switch {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
-	gap: 0.25rem;
-	padding: 0.22rem;
-	background: var(--kd-surface);
-	border: 1px solid var(--kd-border);
-	border-radius: 9px;
-	margin-bottom: 1.25rem;
+	gap: 0.18rem;
+	padding: 0.2rem;
+	background: var(--kd-bg);
+	border: 1px solid var(--kd-border-strong);
+	border-radius: 4px;
+	margin-bottom: 0.9rem;
 }
 
 .kd-track-btn {
 	text-align: center;
 	padding: 0.4rem 0.5rem;
-	border-radius: 6px;
+	border-radius: 3px;
 	color: var(--kd-muted);
-	font-size: 0.8rem;
+	font-size: 0.78rem;
 	font-weight: 600;
 	transition: background 0.15s ease, color 0.15s ease;
 }
@@ -268,7 +311,7 @@ button {
 .kd-track-btn.active {
 	background: var(--kd-surface-2);
 	color: var(--kd-text);
-	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+	box-shadow: inset 0 0 0 1px var(--kd-border-strong);
 }
 
 .kd-nav-list {
@@ -282,12 +325,13 @@ button {
 
 .kd-nav-link {
 	display: block;
-	padding: 0.45rem 0.7rem;
-	border-radius: 7px;
-	font-size: 0.84rem;
+	padding: 0.38rem 0.58rem;
+	border-radius: 3px;
+	font-size: 0.78rem;
+	line-height: 1.45;
 	color: var(--kd-muted);
 	border-left: 2px solid transparent;
-	transition: background 0.15s ease, color 0.15s ease;
+	transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 
 .kd-nav-link:hover {
@@ -298,16 +342,16 @@ button {
 .kd-nav-link.active {
 	color: var(--kd-text);
 	font-weight: 600;
-	background: rgba(255, 255, 255, 0.06);
+	background: var(--kd-accent-soft);
 	border-left-color: var(--kd-accent);
 }
 
 /* ── Main Reading Column & Article Typography ────────────────────────────── */
 
 .kd-main {
-	padding: 2rem 3rem 3.5rem;
+	padding: 2.25rem clamp(2rem, 4vw, 4.5rem) 3.5rem;
 	min-width: 0;
-	max-width: 860px;
+	max-width: 1080px;
 	width: 100%;
 	margin: 0 auto;
 }
@@ -799,27 +843,174 @@ button {
 	margin-left: -0.45rem;
 }
 
+@media (max-width: 1280px) {
+	.kd-grid {
+		grid-template-columns: 264px minmax(0, 1fr) 288px;
+	}
+	.kd-main {
+		padding-inline: clamp(1.75rem, 3vw, 3rem);
+	}
+}
+
 @media (max-width: 1120px) {
 	.kd-grid {
-		grid-template-columns: 240px minmax(0, 1fr);
+		grid-template-columns: 248px minmax(0, 1fr);
 	}
 	.kd-toc {
 		display: none;
+	}
+	.kd-main {
+		padding-inline: clamp(1.5rem, 4vw, 3rem);
 	}
 }
 
 @media (max-width: 768px) {
 	.kd-grid {
-		grid-template-columns: 1fr;
+		grid-template-columns: minmax(0, 1fr);
+		min-height: calc(100svh - 58px);
 	}
+
 	.kd-sidebar {
-		position: static;
+		position: sticky;
+		top: 58px;
+		z-index: 35;
 		height: auto;
-		border-right: none;
-		border-bottom: 1px solid var(--kd-border);
+		min-height: 0;
+		padding: 0.65rem 1rem 0;
+		overflow: visible;
+		border: 0;
+		background: var(--kd-bg);
 	}
+
+	.kd-mobile-nav-trigger {
+		display: flex;
+		width: 100%;
+		min-height: 48px;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid var(--kd-border-strong);
+		border-radius: 5px;
+		background: var(--kd-surface);
+		color: var(--kd-text);
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.kd-mobile-nav-trigger:hover,
+	.kd-mobile-nav-trigger[aria-expanded="true"] {
+		border-color: var(--kd-accent);
+		background: var(--kd-surface-2);
+	}
+
+	.kd-mobile-nav-copy {
+		display: flex;
+		min-width: 0;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+
+	.kd-mobile-nav-label {
+		color: var(--kd-subtle);
+		font-size: 0.61rem;
+		line-height: 1.2;
+	}
+
+	.kd-mobile-nav-current {
+		display: block;
+		max-width: 100%;
+		overflow: hidden;
+		color: var(--kd-text);
+		font-size: 0.8rem;
+		font-weight: 600;
+		line-height: 1.35;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.kd-mobile-nav-action {
+		flex: 0 0 auto;
+		padding: 0.28rem 0.48rem;
+		border: 1px solid var(--kd-border);
+		border-radius: 3px;
+		color: var(--kd-muted);
+		font-size: 0.68rem;
+		font-weight: 550;
+	}
+
+	.kd-sidebar-content {
+		display: none;
+		position: absolute;
+		top: calc(100% + 0.35rem);
+		left: 1rem;
+		right: 1rem;
+		max-height: min(68svh, 620px);
+		min-height: 0;
+		padding: 0.8rem;
+		overflow-y: auto;
+		border: 1px solid var(--kd-border-strong);
+		border-radius: 5px;
+		background: var(--kd-surface);
+		box-shadow: 0 16px 42px rgba(0, 0, 0, 0.48);
+	}
+
+	.kd-sidebar-content.is-open {
+		display: flex;
+	}
+
+	.kd-sidebar-project {
+		display: none;
+	}
+
+	.kd-track-switch {
+		margin-bottom: 0.7rem;
+	}
+
+	.kd-nav-group {
+		margin-bottom: 0.12rem;
+	}
+
+	.kd-nav-group-title {
+		min-height: 36px;
+		padding-inline: 0.6rem;
+		font-size: 0.76rem;
+	}
+
+	.kd-nav-link {
+		min-height: 38px;
+		align-content: center;
+		padding: 0.48rem 0.62rem;
+		font-size: 0.79rem;
+	}
+
 	.kd-main {
-		padding: 1.5rem 1.25rem;
+		max-width: none;
+		padding: 1.5rem 1.15rem 3rem;
+	}
+
+	.kd-article h1 {
+		font-size: clamp(1.65rem, 7vw, 2rem);
+		line-height: 1.18;
+	}
+
+	.kd-article h2 {
+		font-size: 1.18rem;
+	}
+}
+
+@media (max-width: 520px) {
+	.kd-topbar {
+		gap: 0.5rem;
+		padding-inline: 0.85rem;
+	}
+
+	.kd-mobile-nav-trigger {
+		min-height: 46px;
+	}
+
+	.kd-main {
+		padding-inline: 1rem;
 	}
 }
 
@@ -1156,16 +1347,88 @@ button {
 /* ── Structured Sidebar Section Groups ───────────────────────────────────── */
 
 .kd-nav-group {
-	margin-bottom: 1.25rem;
+	margin: 0 0 0.18rem;
 }
 
 .kd-nav-group-title {
-	font-size: 0.68rem;
-	font-weight: 700;
-	text-transform: uppercase;
-	letter-spacing: 0.08em;
+	display: flex;
+	min-height: 30px;
+	align-items: center;
+	gap: 0.55rem;
+	padding: 0.35rem 0.58rem;
+	border-radius: 3px;
+	color: var(--kd-muted);
+	font-size: 0.74rem;
+	font-weight: 550;
+	line-height: 1.3;
+	list-style: none;
+	cursor: pointer;
+	user-select: none;
+	transition: color 0.12s ease, background 0.12s ease;
+}
+
+.kd-nav-group-title::-webkit-details-marker {
+	display: none;
+}
+
+.kd-nav-group-title::marker {
+	content: "";
+}
+
+.kd-nav-group-title::after {
+	width: 0.34rem;
+	height: 0.34rem;
+	flex: 0 0 auto;
+	margin-left: auto;
+	border-right: 1px solid var(--kd-subtle);
+	border-bottom: 1px solid var(--kd-subtle);
+	content: "";
+	transform: rotate(-45deg);
+	transition: transform 0.12s ease;
+}
+
+.kd-nav-group[open] > .kd-nav-group-title::after {
+	transform: rotate(45deg);
+}
+
+.kd-nav-group-title:hover {
+	color: var(--kd-text);
+	background: rgba(255, 255, 255, 0.035);
+}
+
+.kd-nav-group-count {
+	min-width: 1.1rem;
+	margin-left: 0.1rem;
 	color: var(--kd-subtle);
-	padding: 0 0.65rem 0.4rem;
+	font-family: "JetBrains Mono", monospace;
+	font-size: 0.61rem;
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+
+.kd-nav-group-title:hover .kd-nav-group-count {
+	color: var(--kd-muted);
+}
+
+.kd-nav-list {
+	gap: 0.06rem;
+	padding: 0.12rem 0.2rem 0.35rem;
+}
+
+.kd-sidebar::-webkit-scrollbar {
+	width: 8px;
+}
+
+.kd-sidebar::-webkit-scrollbar-thumb {
+	border: 2px solid transparent;
+	border-radius: 4px;
+	background: rgba(255, 255, 255, 0.12);
+	background-clip: padding-box;
+}
+
+.kd-sidebar::-webkit-scrollbar-thumb:hover {
+	background: rgba(255, 255, 255, 0.2);
+	background-clip: padding-box;
 }
 
 
