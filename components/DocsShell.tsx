@@ -783,7 +783,7 @@ export default function DocsShell({
 		const generationIdx = activeGeneration
 			? Math.max(0, project.generations?.findIndex((item) => item.id === activeGeneration) ?? 0)
 			: 0;
-		const lineMatch = lastAnchor.match(/^L(\\d+)$/);
+		const lineMatch = lastAnchor.match(/^L(\d+)$/);
 		const headingIdx = page?.toc.findIndex((item) => item.id === lastAnchor) ?? -1;
 		const parsedLine = lineMatch ? Number(lineMatch[1]) : 0;
 		const lineIdx = parsedLine > 0
