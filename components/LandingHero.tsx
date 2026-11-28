@@ -1,14 +1,38 @@
-// components/LandingHero.tsx — Public-ready "Learn About Kastrick" landing page
-// rendered inside NES (Next.js Engine Schema) via the "kastrick-landing" custom component.
-
 "use client";
 
 import Link from "next/link";
 import React, { useEffect, useRef, useState } from "react";
-import type { DocsManifest } from "@/lib/content";
+import type { DocsManifest, DocPageMeta, ProjectRecord } from "@/lib/content";
 
 interface LandingHeroProps {
 	manifest: DocsManifest;
+}
+
+function getStartingPage(project: ProjectRecord): DocPageMeta | undefined {
+	const currentGeneration = project.generations?.[0];
+	if (currentGeneration) {
+		return project.pages.find((page) =>
+			page.generation === currentGeneration.id && page.slug === currentGeneration.defaultSlug
+		) ?? project.pages.find((page) =>
+			page.generation === currentGeneration.id && page.track === "docs"
+		);
+	}
+	return project.pages.find((page) => page.track === "docs") ?? project.pages[0];
+}
+
+function ProjectCounts({ project }: { project: ProjectRecord }) {
+	const references = project.pages.filter((page) => page.track === "docs").length;
+	const guides = project.pages.filter((page) => page.track === "guides").length;
+
+	return (
+		<div className="kd-home-project-counts" aria-label="Documentation counts">
+			<span><strong>{references}</strong> {references === 1 ? "reference" : "references"}</span>
+			<span><strong>{guides}</strong> {guides === 1 ? "guide" : "guides"}</span>
+			{project.generations && project.generations.length > 0 && (
+				<span><strong>{project.generations.length}</strong> {project.generations.length === 1 ? "generation" : "generations"}</span>
+			)}
+		</div>
+	);
 }
 
 export default function LandingHero({ manifest }: LandingHeroProps) {
@@ -16,8 +40,8 @@ export default function LandingHero({ manifest }: LandingHeroProps) {
 	const dropdownRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => {
-		const onOutside = (e: MouseEvent) => {
-			if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+		const onOutside = (event: MouseEvent) => {
+			if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
 				setProjectsOpen(false);
 			}
 		};
@@ -25,38 +49,39 @@ export default function LandingHero({ manifest }: LandingHeroProps) {
 		return () => document.removeEventListener("mousedown", onOutside);
 	}, []);
 
-	const established = manifest.projects.filter((p) => p.established);
-	const upcoming = manifest.projects.filter((p) => !p.established);
+	const established = manifest.projects.filter((project) => project.established);
+	const upcoming = manifest.projects.filter((project) => !project.established);
+	const totalPages = established.reduce((count, project) => count + project.pages.length, 0);
 
 	return (
-		<div className="kd-landing-root">
-			<header className="kd-topbar">
+		<div className="kd-doc-home-root">
+			<header className="kd-topbar kd-doc-home-topbar">
 				<div className="kd-topbar-left">
-					<Link href="/" className="kd-brand" title="Kastrick Docs">
-						K8D
-					</Link>
+					<Link href="/" className="kd-brand" title="Kastrick Documentation">K8D</Link>
+					<span className="kd-doc-home-wordmark">Kastrick Documentation</span>
 					<div className="kd-dropdown" ref={dropdownRef}>
 						<button
 							type="button"
 							className="kd-dropdown-trigger"
-							onClick={() => setProjectsOpen((o) => !o)}
+							aria-expanded={projectsOpen}
+							onClick={() => setProjectsOpen((open) => !open)}
 						>
-							Projects ▾
+							Projects <span aria-hidden="true">⌄</span>
 						</button>
 						{projectsOpen && (
 							<div className="kd-dropdown-menu">
-								{manifest.projects.map((proj) => (
+								{manifest.projects.map((project) => (
 									<Link
-										key={proj.id}
-										href={`/${proj.id}`}
+										key={project.id}
+										href={`/${project.id}`}
 										className="kd-dropdown-item"
 										onClick={() => setProjectsOpen(false)}
 									>
 										<div className="kd-dropdown-item-head">
-											<span>{proj.name}</span>
-											{!proj.established && <span className="kd-badge-notest">NOT_EST</span>}
+											<span>{project.name}</span>
+											{!project.established && <span className="kd-badge-notest">Planned</span>}
 										</div>
-										<small>{proj.description}</small>
+										<small>{project.description}</small>
 									</Link>
 								))}
 							</div>
@@ -64,14 +89,6 @@ export default function LandingHero({ manifest }: LandingHeroProps) {
 					</div>
 				</div>
 				<div className="kd-topbar-right">
-					<a
-						href="https://kastrick.vercel.app"
-						target="_blank"
-						rel="noopener noreferrer"
-						className="kd-repo-link"
-					>
-						kastrick.vercel.app ↗
-					</a>
 					<a
 						href="https://github.com/Kate-alt-69/kastrick-docs"
 						target="_blank"
@@ -83,110 +100,61 @@ export default function LandingHero({ manifest }: LandingHeroProps) {
 				</div>
 			</header>
 
-			<main className="kd-landing-main">
-				{/* Hero Section */}
-				<section className="kd-landing-hero">
-					<div className="kd-landing-eyebrow">
-						KASTRICK DOCUMENTATION · {manifest.license.name}
+			<main className="kd-doc-home-main">
+				<section className="kd-doc-home-intro" aria-labelledby="kd-doc-home-title">
+					<div className="kd-doc-home-intro-copy">
+						<p className="kd-doc-home-eyebrow">KASTRICK / DOCUMENTATION</p>
+						<h1 id="kd-doc-home-title">Documentation</h1>
+						<p className="kd-doc-home-lead">
+							Technical reference, architecture notes, and practical guides for projects across the Kastrick ecosystem.
+						</p>
+						<div className="kd-doc-home-actions">
+							<a href="#projects" className="kd-doc-home-primary">Browse projects <span aria-hidden="true">↓</span></a>
+							<a href="https://kastrick.vercel.app" target="_blank" rel="noopener noreferrer" className="kd-doc-home-text-link">
+								Kastrick website ↗
+							</a>
+						</div>
 					</div>
-					<h1 className="kd-landing-title">Learn About Kastrick</h1>
-					<p className="kd-landing-subtitle">
-						Official documentation, architecture references, and practical guides for the
-						Kastrick ecosystem. Built statically per release from live project repositories
-						using Next.js Engine (NES).
-					</p>
-					<div className="kd-landing-cta">
-						<Link href="/rbe" className="kd-btn-primary">
-							Explore RBE Docs →
-						</Link>
-						<Link href="/nextjs-engine/docs/3" className="kd-btn-secondary">
-							Next.js Engine · Gen 3
-						</Link>
-						<Link href="/nextjs-engine/docs/2" className="kd-btn-secondary">
-							Next.js Engine · Gen 2 archive
-						</Link>
-						<a
-							href="https://kastrick.vercel.app"
-							target="_blank"
-							rel="noopener noreferrer"
-							className="kd-btn-secondary"
-						>
-							Visit Kastrick ↗
-						</a>
-					</div>
+					<aside className="kd-doc-home-overview" aria-label="Documentation library summary">
+						<p className="kd-doc-home-overview-title">LIBRARY OVERVIEW</p>
+						<div><strong>{established.length}</strong><span>Published projects</span></div>
+						<div><strong>{totalPages}</strong><span>Indexed pages</span></div>
+						<div><strong>{upcoming.length}</strong><span>Projects in preparation</span></div>
+					</aside>
 				</section>
 
-				{/* Core Capabilities Strip */}
-				<section className="kd-landing-pillars" aria-label="Documentation highlights">
-					<div className="kd-pillar-card">
-						<h3>Docs &amp; Guides Split</h3>
-						<p>
-							Switch cleanly between deep technical references (APIs, compilers, internals)
-							and task-focused guides showing how to get features running fast.
-						</p>
-					</div>
-					<div className="kd-pillar-card">
-						<h3>EngineScroll Share Links</h3>
-						<p>
-							Share exact headings, lines, or reading progress via <code>#-es</code> anchors
-							and compact <code>/share/&lt;8char&gt;</code> level codes.
-						</p>
-					</div>
-					<div className="kd-pillar-card">
-						<h3>Pin &amp; Notebook Markings</h3>
-						<p>
-							Bookmark pages or highlight any text inside the docs to copy, pin, or save
-							annotated quotes directly into your local Notebook.
-						</p>
-					</div>
-				</section>
+				<section id="projects" className="kd-doc-home-section" aria-labelledby="kd-doc-home-projects">
+					<header className="kd-doc-home-section-head">
+						<div>
+							<p className="kd-doc-home-eyebrow">PROJECT DIRECTORY</p>
+							<h2 id="kd-doc-home-projects">Browse documentation</h2>
+						</div>
+						<p>Choose a project to browse its reference pages and task-based guides.</p>
+					</header>
 
-				{/* Established Projects */}
-				<section className="kd-landing-section">
-					<div className="kd-section-head">
-						<h2>Active Documentation</h2>
-						<span>Pulled statically from live repositories on every build</span>
-					</div>
-					<div className="kd-landing-grid">
+					<div className="kd-doc-home-project-grid">
 						{established.map((project) => {
-							const firstPage = project.generations?.[0]
-								? project.pages.find((page) => page.slug === project.generations?.[0]?.defaultSlug) ?? project.pages[0]
-								: project.pages[0];
+							const startPage = getStartingPage(project);
 							return (
-								<article key={project.id} className="kd-landing-card">
-									<div className="kd-landing-card-top">
+								<article key={project.id} className="kd-home-project-card">
+									<div className="kd-home-project-card-head">
 										<div>
-											<h3>{project.name}</h3>
-											<span className="kd-card-repo">{project.repo}</span>
+											<p className="kd-home-project-kicker">PROJECT DOCUMENTATION</p>
+											<h3><Link href={`/${project.id}`}>{project.name}</Link></h3>
+											<span className="kd-home-project-repo">{project.repo}</span>
 										</div>
-										<span className="kd-badge-live">{project.badge}</span>
+										<span className="kd-home-project-status">{project.badge || "Published"}</span>
 									</div>
-									<p>{project.description}</p>
-									{project.rebaseNotice && (
-										<div className="kd-card-warn">
-											Note: Currently undergoing a full Generation 3 documentation rebase.
-										</div>
-									)}
-									<div className="kd-landing-card-actions">
-										<Link href={`/${project.id}`} className="kd-btn-primary">
-											Project Overview
-										</Link>
-										{firstPage && (
-											<Link
-												href={`/${project.id}/${firstPage.slug}`}
-												className="kd-btn-secondary"
-											>
-												Start Reading
+									<p className="kd-home-project-description">{project.description}</p>
+									<ProjectCounts project={project} />
+									{project.rebaseNotice && <p className="kd-home-project-note">{project.rebaseNotice}</p>}
+									<div className="kd-home-project-actions">
+										<Link href={`/${project.id}`} className="kd-doc-home-primary">Browse documentation <span aria-hidden="true">→</span></Link>
+										{startPage && (
+											<Link href={`/${project.id}/${startPage.slug}`} className="kd-doc-home-secondary">
+												Start reading
 											</Link>
 										)}
-										<a
-											href={project.originalSiteUrl}
-											target="_blank"
-											rel="noopener noreferrer"
-											className="kd-card-ext"
-										>
-											Original Site ↗
-										</a>
 									</div>
 								</article>
 							);
@@ -194,53 +162,42 @@ export default function LandingHero({ manifest }: LandingHeroProps) {
 					</div>
 				</section>
 
-				{/* Upcoming / NOT_EST Projects */}
-				<section className="kd-landing-section">
-					<div className="kd-section-head">
-						<h2>Upcoming Ecosystem (NOT_EST)</h2>
-						<span>Pre-wired routes ready to auto-publish once each repository is established</span>
-					</div>
-					<div className="kd-landing-grid kd-landing-grid-compact">
-						{upcoming.map((project) => (
-							<article key={project.id} className="kd-landing-card kd-landing-card-muted">
-								<div className="kd-landing-card-top">
+				{upcoming.length > 0 && (
+					<section className="kd-doc-home-section kd-doc-home-upcoming" aria-labelledby="kd-doc-home-upcoming">
+						<header className="kd-doc-home-section-head">
+							<div>
+								<p className="kd-doc-home-eyebrow">IN PREPARATION</p>
+								<h2 id="kd-doc-home-upcoming">More projects</h2>
+							</div>
+							<p>These project indexes are registered and will populate as documentation becomes available.</p>
+						</header>
+						<div className="kd-doc-home-upcoming-list">
+							{upcoming.map((project) => (
+								<article key={project.id} className="kd-home-upcoming-row">
 									<div>
-										<h3>{project.name}</h3>
-										<span className="kd-card-repo">{project.repo}</span>
+										<h3><Link href={`/${project.id}`}>{project.name}</Link></h3>
+										<p>{project.description}</p>
+										<span>{project.repo}</span>
 									</div>
-									<span className="kd-badge-notest">NOT_EST</span>
-								</div>
-								<p>{project.description}</p>
-								<div className="kd-landing-card-actions">
-									<Link href={`/${project.id}`} className="kd-btn-secondary">
-										View Status
-									</Link>
-									<a
-										href={project.originalSiteUrl}
-										target="_blank"
-										rel="noopener noreferrer"
-										className="kd-card-ext"
-									>
-										Original Site ↗
-									</a>
-								</div>
-							</article>
-						))}
-					</div>
-				</section>
+									<div className="kd-home-upcoming-actions">
+										<span>Not yet published</span>
+										<Link href={`/${project.id}`}>Project details →</Link>
+									</div>
+								</article>
+							))}
+						</div>
+					</section>
+				)}
 			</main>
 
-			<footer className="kd-landing-footer">
-				<div className="kd-landing-footer-inner">
+			<footer className="kd-doc-home-footer">
+				<div className="kd-doc-home-footer-inner">
 					<p>
 						Documentation licensed under{" "}
-						<a href={manifest.license.url} target="_blank" rel="noopener noreferrer">
-							{manifest.license.name}
-						</a>{" "}
-						— Verbatim download &amp; sharing allowed (commercial use permitted). Suggest edits
-						via GitHub Issues on the source repository.
+						<a href={manifest.license.url} target="_blank" rel="noopener noreferrer">{manifest.license.name}</a>.
+						Content is shared verbatim; suggested changes belong in the source project repository.
 					</p>
-					<span>© {new Date().getFullYear()} Kastrick Platform</span>
+					<span>© {new Date().getFullYear()} Kastrick</span>
 				</div>
 			</footer>
 		</div>
