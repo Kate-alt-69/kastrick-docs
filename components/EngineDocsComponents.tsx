@@ -5,7 +5,7 @@
 import React from "react";
 import { createComponent, createEngineComponentRegistry } from "@/engine";
 import DocsShell from "@/components/DocsShell";
-import LandingHero from "@/components/LandingHero";
+import LandingHero, { type LandingSiteData } from "@/components/LandingHero";
 import ProjectLanding from "@/components/ProjectLanding";
 import type { DocPageMeta, DocTrack, DocsManifest, ProjectRecord } from "@/lib/content";
 
@@ -19,7 +19,7 @@ interface DocShellNodeProps {
 }
 
 interface LandingNodeProps {
-	manifestJson: string;
+	landingDataJson: string;
 }
 
 interface ProjectLandingNodeProps {
@@ -51,10 +51,10 @@ function KastrickDocShellAdapter({
 	);
 }
 
-/** Adapter bridging serializable NES schema props into LandingHero. */
-function KastrickLandingAdapter({ manifestJson }: LandingNodeProps) {
-	const manifest = JSON.parse(manifestJson) as DocsManifest;
-	return <LandingHero manifest={manifest} />;
+/** Adapter bridging the small public landing payload into LandingHero. */
+function KastrickLandingAdapter({ landingDataJson }: LandingNodeProps) {
+	const landingData = JSON.parse(landingDataJson) as LandingSiteData;
+	return <LandingHero data={landingData} />;
 }
 
 /** Adapter for each source-driven project index page. */
@@ -85,7 +85,7 @@ export const KastrickLandingComponent = createComponent({
 	id: "kastrick-landing",
 	component: KastrickLandingAdapter as unknown as React.ComponentType<Record<string, unknown>>,
 	props: {
-		manifestJson: { type: "string", required: true },
+		landingDataJson: { type: "string", required: true },
 	},
 	strictProps: false,
 });

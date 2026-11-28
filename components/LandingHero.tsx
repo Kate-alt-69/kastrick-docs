@@ -1,203 +1,284 @@
 "use client";
 
 import Link from "next/link";
-import React, { useEffect, useRef, useState } from "react";
-import type { DocsManifest, DocPageMeta, ProjectRecord } from "@/lib/content";
+import type { CSSProperties } from "react";
+import LandingMotion from "@/components/LandingMotion";
 
-interface LandingHeroProps {
-	manifest: DocsManifest;
+export interface LandingProject {
+	id: string;
+	name: string;
+	description: string;
+	repo: string;
+	repoUrl: string;
+	originalSiteUrl: string;
+	established: boolean;
+	status: string;
+	badge: string;
+	version: string;
+	accentColor: string;
+	referenceCount: number;
+	guideCount: number;
+	pageCount: number;
+	generationLabels: string[];
+	startHref: string;
+	guideHref?: string;
 }
 
-function getStartingPage(project: ProjectRecord): DocPageMeta | undefined {
-	const currentGeneration = project.generations?.[0];
-	if (currentGeneration) {
-		return project.pages.find((page) =>
-			page.generation === currentGeneration.id && page.slug === currentGeneration.defaultSlug
-		) ?? project.pages.find((page) =>
-			page.generation === currentGeneration.id && page.track === "docs"
-		);
-	}
-	return project.pages.find((page) => page.track === "docs") ?? project.pages[0];
+export interface LandingSiteData {
+	license: { name: string; url: string };
+	projects: LandingProject[];
 }
 
-function ProjectCounts({ project }: { project: ProjectRecord }) {
-	const references = project.pages.filter((page) => page.track === "docs").length;
-	const guides = project.pages.filter((page) => page.track === "guides").length;
+const projectKinds: Record<string, string> = {
+	rbe: "SYSTEMS / RUST",
+	"nextjs-engine": "WEB PLATFORM",
+	packagex: "INSTALLATION INFRASTRUCTURE",
+	packx: "BUILD TOOLING",
+	"packagex-sdks": "DEVELOPER TOOLING",
+	"kastricks-utility": "CREATOR SOFTWARE",
+};
+
+function statusLabel(project: LandingProject): string {
+	if (!project.established) return "In preparation";
+	if (project.status.toLowerCase() === "alpha") return "Alpha";
+	if (project.status.toLowerCase() === "active") return "Active";
+	return "Published";
+}
+
+function ProjectCard({ project, index }: { project: LandingProject; index: number }) {
+	const accentStyle = { "--project-accent": project.accentColor } as CSSProperties;
 
 	return (
-		<div className="kd-home-project-counts" aria-label="Documentation counts">
-			<span><strong>{references}</strong> {references === 1 ? "reference" : "references"}</span>
-			<span><strong>{guides}</strong> {guides === 1 ? "guide" : "guides"}</span>
-			{project.generations && project.generations.length > 0 && (
-				<span><strong>{project.generations.length}</strong> {project.generations.length === 1 ? "generation" : "generations"}</span>
+		<article className="kd-home2-project-card" style={accentStyle}>
+			<div className="kd-home2-card-top">
+				<div className="kd-home2-project-index">
+					<span>{String(index + 1).padStart(2, "0")}</span>
+					<span>{projectKinds[project.id] ?? "KASTRICK PROJECT"}</span>
+				</div>
+				<span className="kd-home2-status">{statusLabel(project)}</span>
+			</div>
+
+			<div className="kd-home2-project-heading">
+				<h3><Link href={`/${project.id}`}>{project.name}</Link></h3>
+				{project.badge && <span className="kd-home2-project-badge">{project.badge}</span>}
+			</div>
+
+			<p className="kd-home2-project-description">{project.description}</p>
+
+			{project.generationLabels.length > 0 && (
+				<div className="kd-home2-generation-list" aria-label="Published documentation generations">
+					{project.generationLabels.map((label) => <span key={label}>{label}</span>)}
+				</div>
 			)}
-		</div>
+
+			<div className="kd-home2-project-meta">
+				<span><strong>{project.referenceCount}</strong> reference</span>
+				<span><strong>{project.guideCount}</strong> guides</span>
+				<span><strong>{project.pageCount}</strong> total pages</span>
+			</div>
+
+			<footer className="kd-home2-project-actions">
+				<Link href={project.startHref} className="kd-home2-card-primary">
+					Open documentation <span aria-hidden="true">↗</span>
+				</Link>
+				<a href={project.repoUrl} target="_blank" rel="noopener noreferrer" className="kd-home2-card-source">
+					Source <span aria-hidden="true">↗</span>
+				</a>
+			</footer>
+		</article>
 	);
 }
 
-export default function LandingHero({ manifest }: LandingHeroProps) {
-	const [projectsOpen, setProjectsOpen] = useState(false);
-	const dropdownRef = useRef<HTMLDivElement | null>(null);
-
-	useEffect(() => {
-		const onOutside = (event: MouseEvent) => {
-			if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-				setProjectsOpen(false);
-			}
-		};
-		document.addEventListener("mousedown", onOutside);
-		return () => document.removeEventListener("mousedown", onOutside);
-	}, []);
-
-	const established = manifest.projects.filter((project) => project.established);
-	const upcoming = manifest.projects.filter((project) => !project.established);
-	const totalPages = established.reduce((count, project) => count + project.pages.length, 0);
+function InPreparationCard({ project }: { project: LandingProject }) {
+	const accentStyle = { "--project-accent": project.accentColor } as CSSProperties;
 
 	return (
-		<div className="kd-doc-home-root">
-			<header className="kd-topbar kd-doc-home-topbar">
-				<div className="kd-topbar-left">
-					<Link href="/" className="kd-brand" title="Kastrick Documentation">K8D</Link>
-					<span className="kd-doc-home-wordmark">Kastrick Documentation</span>
-					<div className="kd-dropdown" ref={dropdownRef}>
-						<button
-							type="button"
-							className="kd-dropdown-trigger"
-							aria-expanded={projectsOpen}
-							onClick={() => setProjectsOpen((open) => !open)}
-						>
-							Projects <span aria-hidden="true">⌄</span>
-						</button>
-						{projectsOpen && (
-							<div className="kd-dropdown-menu">
-								{manifest.projects.map((project) => (
-									<Link
-										key={project.id}
-										href={`/${project.id}`}
-										className="kd-dropdown-item"
-										onClick={() => setProjectsOpen(false)}
-									>
-										<div className="kd-dropdown-item-head">
-											<span>{project.name}</span>
-											{!project.established && <span className="kd-badge-notest">Planned</span>}
-										</div>
-										<small>{project.description}</small>
-									</Link>
-								))}
-							</div>
-						)}
-					</div>
+		<article className="kd-home2-upcoming-card" style={accentStyle}>
+			<div className="kd-home2-upcoming-marker" aria-hidden="true" />
+			<div className="kd-home2-upcoming-copy">
+				<div className="kd-home2-upcoming-title">
+					<h3><Link href={`/${project.id}`}>{project.name}</Link></h3>
+					<span>In preparation</span>
 				</div>
-				<div className="kd-topbar-right">
-					<a
-						href="https://github.com/Kate-alt-69/kastrick-docs"
-						target="_blank"
-						rel="noopener noreferrer"
-						className="kd-btn-secondary"
-					>
-						GitHub
-					</a>
+				<p>{project.description}</p>
+				<small>{project.repo}</small>
+			</div>
+			<a href={project.repoUrl} target="_blank" rel="noopener noreferrer" aria-label={`View ${project.name} source repository`}>
+				↗
+			</a>
+		</article>
+	);
+}
+
+export default function LandingHero({ data }: { data: LandingSiteData }) {
+	const published = data.projects.filter((project) => project.established);
+	const upcoming = data.projects.filter((project) => !project.established);
+	const totalPages = published.reduce((sum, project) => sum + project.pageCount, 0);
+	const featured = published.find((project) => project.id === "nextjs-engine") ?? published[0];
+	const firstGuideProject = published.find((project) => project.guideHref);
+	const featuredGuideHref = firstGuideProject?.guideHref ?? featured?.startHref ?? "#ecosystem";
+
+	return (
+		<div className="kd-doc-home-root kd-home2-root">
+			<header className="kd-home2-topbar">
+				<div className="kd-home2-nav-inner">
+					<Link href="/" className="kd-home2-brand" aria-label="Kastrick documentation home">
+						<span className="kd-home2-brand-mark">K</span>
+						<span className="kd-home2-brand-copy">
+							<strong>KASTRICK</strong>
+						<small>ENGINEERING LIBRARY</small>
+						</span>
+					</Link>
+
+					<nav className="kd-home2-nav" aria-label="Main navigation">
+						<a href="#ecosystem">Ecosystem</a>
+						<a href="#library">Documentation</a>
+						<a href="#approach">How it works</a>
+					</nav>
+
+					<div className="kd-home2-nav-actions">
+						<a href="https://kastrick.vercel.app" target="_blank" rel="noopener noreferrer" className="kd-home2-site-link">
+							Kastrick site <span aria-hidden="true">↗</span>
+						</a>
+						<a href="https://github.com/Kate-alt-69/kastrick-docs" target="_blank" rel="noopener noreferrer" className="kd-home2-github-link">
+							GitHub <span aria-hidden="true">↗</span>
+						</a>
+					</div>
 				</div>
 			</header>
 
-			<main className="kd-doc-home-main">
-				<section className="kd-doc-home-intro" aria-labelledby="kd-doc-home-title">
-					<div className="kd-doc-home-intro-copy">
-						<p className="kd-doc-home-eyebrow">KASTRICK / DOCUMENTATION</p>
-						<h1 id="kd-doc-home-title">Documentation</h1>
-						<p className="kd-doc-home-lead">
-							Technical reference, architecture notes, and practical guides for projects across the Kastrick ecosystem.
+			<main className="kd-home2-main">
+				<section className="kd-home2-hero" aria-labelledby="kd-home2-title">
+					<div className="kd-home2-hero-copy">
+						<p className="kd-home2-eyebrow"><span /> THE KASTRICK ECOSYSTEM / TECHNICAL LIBRARY</p>
+						<h1 id="kd-home2-title">
+							The tools behind the work. <em>All in one place.</em>
+						</h1>
+						<p className="kd-home2-hero-lead">
+							Explore the systems, runtimes, build tools, and creator software taking shape across Kastrick — with the technical context to understand how they fit together.
 						</p>
-						<div className="kd-doc-home-actions">
-							<a href="#projects" className="kd-doc-home-primary">Browse projects <span aria-hidden="true">↓</span></a>
-							<a href="https://kastrick.vercel.app" target="_blank" rel="noopener noreferrer" className="kd-doc-home-text-link">
-								Kastrick website ↗
+						<div className="kd-home2-hero-actions">
+							<a href="#ecosystem" className="kd-home2-button-primary">
+								Explore the ecosystem <span aria-hidden="true">↓</span>
 							</a>
+							{featured && (
+								<Link href={featured.startHref} className="kd-home2-button-secondary">
+									Read the documentation <span aria-hidden="true">↗</span>
+								</Link>
+							)}
+						</div>
+
+						<div className="kd-home2-hero-proof">
+							<span><i aria-hidden="true" /> Source-linked</span>
+							<span>Version-aware references</span>
+							<span>Docs and practical guides</span>
 						</div>
 					</div>
-					<aside className="kd-doc-home-overview" aria-label="Documentation library summary">
-						<p className="kd-doc-home-overview-title">LIBRARY OVERVIEW</p>
-						<div><strong>{established.length}</strong><span>Published projects</span></div>
-						<div><strong>{totalPages}</strong><span>Indexed pages</span></div>
-						<div><strong>{upcoming.length}</strong><span>Projects in preparation</span></div>
+
+					<aside className="kd-home2-visual" aria-label="Abstract engineering system map">
+						<div className="kd-home2-visual-grid" />
+						<div className="kd-home2-visual-head">
+							<span>ENGINEERING / MAP 01</span>
+							<span>FIG. 01</span>
+						</div>
+						<div className="kd-home2-motion-stage">
+							<LandingMotion />
+						</div>
+						<span className="kd-home2-visual-node kd-home2-node-runtime">RUNTIME</span>
+						<span className="kd-home2-visual-node kd-home2-node-compiler">COMPILER</span>
+						<span className="kd-home2-visual-node kd-home2-node-tooling">TOOLING</span>
+						<div className="kd-home2-visual-foot">
+							<span>01 — SYSTEMS</span>
+							<span>02 — INTERFACES</span>
+							<span>03 — WORKFLOWS</span>
+						</div>
 					</aside>
 				</section>
 
-				<section id="projects" className="kd-doc-home-section" aria-labelledby="kd-doc-home-projects">
-					<header className="kd-doc-home-section-head">
-						<div>
-							<p className="kd-doc-home-eyebrow">PROJECT DIRECTORY</p>
-							<h2 id="kd-doc-home-projects">Browse documentation</h2>
-						</div>
-						<p>Choose a project to browse its reference pages and task-based guides.</p>
-					</header>
+				<section className="kd-home2-stats" aria-label="Documentation overview">
+					<div><strong>{published.length.toString().padStart(2, "0")}</strong><span>Published projects</span></div>
+					<div><strong>{totalPages.toString().padStart(2, "0")}</strong><span>Indexed pages</span></div>
+					<div><strong>{data.projects.length.toString().padStart(2, "0")}</strong><span>Projects tracked</span></div>
+					<p>The documentation stays connected to the projects it describes.</p>
+				</section>
 
-					<div className="kd-doc-home-project-grid">
-						{established.map((project) => {
-							const startPage = getStartingPage(project);
-							return (
-								<article key={project.id} className="kd-home-project-card">
-									<div className="kd-home-project-card-head">
-										<div>
-											<p className="kd-home-project-kicker">PROJECT DOCUMENTATION</p>
-											<h3><Link href={`/${project.id}`}>{project.name}</Link></h3>
-											<span className="kd-home-project-repo">{project.repo}</span>
-										</div>
-										<span className="kd-home-project-status">{project.badge || "Published"}</span>
-									</div>
-									<p className="kd-home-project-description">{project.description}</p>
-									<ProjectCounts project={project} />
-									{project.rebaseNotice && <p className="kd-home-project-note">{project.rebaseNotice}</p>}
-									<div className="kd-home-project-actions">
-										<Link href={`/${project.id}`} className="kd-doc-home-primary">Browse documentation <span aria-hidden="true">→</span></Link>
-										{startPage && (
-											<Link href={`/${project.id}/${startPage.slug}`} className="kd-doc-home-secondary">
-												Start reading
-											</Link>
-										)}
-									</div>
-								</article>
-							);
-						})}
+				<section id="ecosystem" className="kd-home2-section" aria-labelledby="kd-home2-ecosystem-title">
+					<div className="kd-home2-section-heading">
+						<div>
+							<p className="kd-home2-section-kicker">01 / THE ECOSYSTEM</p>
+							<h2 id="kd-home2-ecosystem-title">Built for different layers of the stack.</h2>
+						</div>
+						<p>Each project has its own purpose, source repository, and documentation path. Start with what you need; follow the connections from there.</p>
+					</div>
+
+					<div className="kd-home2-project-grid">
+						{published.map((project, index) => <ProjectCard key={project.id} project={project} index={index} />)}
 					</div>
 				</section>
 
 				{upcoming.length > 0 && (
-					<section className="kd-doc-home-section kd-doc-home-upcoming" aria-labelledby="kd-doc-home-upcoming">
-						<header className="kd-doc-home-section-head">
+					<section className="kd-home2-section kd-home2-upcoming-section" aria-labelledby="kd-home2-upcoming-title">
+						<div className="kd-home2-section-heading kd-home2-section-heading-compact">
 							<div>
-								<p className="kd-doc-home-eyebrow">IN PREPARATION</p>
-								<h2 id="kd-doc-home-upcoming">More projects</h2>
+								<p className="kd-home2-section-kicker">02 / ON THE WORKBENCH</p>
+								<h2 id="kd-home2-upcoming-title">More is taking shape.</h2>
 							</div>
-							<p>These project indexes are registered and will populate as documentation becomes available.</p>
-						</header>
-						<div className="kd-doc-home-upcoming-list">
-							{upcoming.map((project) => (
-								<article key={project.id} className="kd-home-upcoming-row">
-									<div>
-										<h3><Link href={`/${project.id}`}>{project.name}</Link></h3>
-										<p>{project.description}</p>
-										<span>{project.repo}</span>
-									</div>
-									<div className="kd-home-upcoming-actions">
-										<span>Not yet published</span>
-										<Link href={`/${project.id}`}>Project details →</Link>
-									</div>
-								</article>
-							))}
+							<p>These projects are part of the wider ecosystem. Their documentation will grow alongside the work.</p>
+						</div>
+						<div className="kd-home2-upcoming-grid">
+							{upcoming.map((project) => <InPreparationCard key={project.id} project={project} />)}
 						</div>
 					</section>
 				)}
+
+				<section id="library" className="kd-home2-section" aria-labelledby="kd-home2-library-title">
+					<div className="kd-home2-section-heading">
+						<div>
+							<p className="kd-home2-section-kicker">03 / THE LIBRARY</p>
+							<h2 id="kd-home2-library-title">Find the right way in.</h2>
+						</div>
+						<p>Move from a high-level overview to the detail you need without losing the thread.</p>
+					</div>
+
+					<div className="kd-home2-entry-grid">
+						<Link href={featured?.startHref ?? "#ecosystem"} className="kd-home2-entry-card">
+							<span className="kd-home2-entry-number">01</span>
+							<div><h3>Reference</h3><p>APIs, architecture, configuration, and the details that make a system predictable.</p></div>
+							<span className="kd-home2-entry-arrow" aria-hidden="true">↗</span>
+						</Link>
+						<Link href={featuredGuideHref} className="kd-home2-entry-card">
+							<span className="kd-home2-entry-number">02</span>
+							<div><h3>Guides</h3><p>Practical routes through common tasks, setup work, and real implementation choices.</p></div>
+							<span className="kd-home2-entry-arrow" aria-hidden="true">↗</span>
+						</Link>
+						<a href={featured?.repoUrl ?? "https://github.com/Kate-alt-69/kastrick-docs"} target="_blank" rel="noopener noreferrer" className="kd-home2-entry-card">
+							<span className="kd-home2-entry-number">03</span>
+							<div><h3>Source</h3><p>Trace the documentation back to the repository and the work it describes.</p></div>
+							<span className="kd-home2-entry-arrow" aria-hidden="true">↗</span>
+						</a>
+					</div>
+				</section>
+
+				<section id="approach" className="kd-home2-bottom-cta">
+					<div>
+						<p className="kd-home2-section-kicker">A BETTER PLACE TO START</p>
+						<h2>Understand the system before you change it.</h2>
+						<p>Browse the project index, choose a generation where it matters, and keep the source close while you work.</p>
+					</div>
+					<Link href={featured?.startHref ?? "#ecosystem"} className="kd-home2-button-primary">
+						Open the library <span aria-hidden="true">↗</span>
+					</Link>
+				</section>
 			</main>
 
-			<footer className="kd-doc-home-footer">
-				<div className="kd-doc-home-footer-inner">
-					<p>
-						Documentation licensed under{" "}
-						<a href={manifest.license.url} target="_blank" rel="noopener noreferrer">{manifest.license.name}</a>.
-						Content is shared verbatim; suggested changes belong in the source project repository.
-					</p>
-					<span>© {new Date().getFullYear()} Kastrick</span>
+			<footer className="kd-home2-footer">
+				<div className="kd-home2-footer-inner">
+					<Link href="/" className="kd-home2-footer-brand">KASTRICK <span>/ DOCS</span></Link>
+					<p>Documentation licensed under <a href={data.license.url} target="_blank" rel="noopener noreferrer">{data.license.name}</a>. Source repositories remain the place for code and suggested changes.</p>
+					<div>
+						<a href="https://kastrick.vercel.app" target="_blank" rel="noopener noreferrer">Kastrick ↗</a>
+						<a href="https://github.com/Kate-alt-69/kastrick-docs" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+					</div>
 				</div>
 			</footer>
 		</div>
