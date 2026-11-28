@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import LandingMotion from "@/components/LandingMotion";
@@ -72,9 +70,9 @@ function ProjectCard({ project, index }: { project: LandingProject; index: numbe
 			)}
 
 			<div className="kd-home2-project-meta">
-				<span><strong>{project.referenceCount}</strong> reference</span>
-				<span><strong>{project.guideCount}</strong> guides</span>
-				<span><strong>{project.pageCount}</strong> total pages</span>
+				<span><strong>{project.referenceCount}</strong> {project.referenceCount === 1 ? "reference" : "references"}</span>
+				<span><strong>{project.guideCount}</strong> {project.guideCount === 1 ? "guide" : "guides"}</span>
+				<span><strong>{project.pageCount}</strong> {project.pageCount === 1 ? "page" : "pages"}</span>
 			</div>
 
 			<footer className="kd-home2-project-actions">
@@ -181,7 +179,7 @@ export default function LandingHero({ data }: { data: LandingSiteData }) {
 							<span>ENGINEERING / MAP 01</span>
 							<span>FIG. 01</span>
 						</div>
-						<div className="kd-home2-motion-stage">
+						<div className="kd-home2-motion-stage" aria-hidden="true">
 							<LandingMotion />
 						</div>
 						<span className="kd-home2-visual-node kd-home2-node-runtime">RUNTIME</span>
