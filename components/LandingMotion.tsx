@@ -70,9 +70,11 @@ export default function LandingMotion() {
 
 	return (
 		<EngineManim
+			width={480}
+			height={300}
 			cprop={{ manim: animation }}
 			className="kd-home2-motion-canvas"
-			style={{ width: "100%", height: "100%" }}
+			style={{ width: "min(100%, 480px)", height: "auto", aspectRatio: "8 / 5" }}
 		/>
 	);
 }
