@@ -14,7 +14,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { DocPageMeta, DocTrack, DocsManifest, ProjectRecord } from "@/lib/content";
-import { encodePageShareCode, normalizeShareAnchor, SHARE_LINK_ORIGIN } from "@/lib/shareCode";
+import { normalizeShareAnchor, SHARE_LINK_ORIGIN } from "@/lib/shareCode";
+import { encodeShareState, ENGINE_SCROLL_DEFAULTS } from "@/lib/shareState";
 
 interface DocsShellProps {
 	manifest: DocsManifest;
@@ -123,53 +124,119 @@ const ES_PROTOCOL = "#-es?";
 let highlightTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Parse and execute an EngineScroll #-es share URL against the live DOM. */
+function getStickyHeaderClearance(): number {
+	const candidates = Array.from(
+		document.querySelectorAll<HTMLElement>("header, [role='banner'], [data-sticky-header='true']"),
+	);
+	let bottom = 0;
+	for (const element of candidates) {
+		const position = window.getComputedStyle(element).position;
+		if (position !== "sticky" && position !== "fixed") continue;
+		const rect = element.getBoundingClientRect();
+		if (rect.top <= 1 && rect.bottom > 0 && rect.height > 0) {
+			bottom = Math.max(bottom, rect.bottom);
+		}
+	}
+	return bottom > 0 ? Math.ceil(bottom + 12) : 0;
+}
+
+function scrollWindowTo(targetTop: number, duration: number): void {
+	const destination = Math.max(0, targetTop);
+	if (duration <= 0 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+		window.scrollTo({ top: destination, behavior: "auto" });
+		return;
+	}
+	const startTop = window.scrollY;
+	const distance = destination - startTop;
+	const startTime = performance.now();
+	const step = (now: number) => {
+		const progress = Math.min(1, (now - startTime) / duration);
+		const eased = 1 - Math.pow(1 - progress, 3);
+		window.scrollTo({ top: startTop + distance * eased, behavior: "auto" });
+		if (progress < 1) window.requestAnimationFrame(step);
+	};
+	window.requestAnimationFrame(step);
+}
+
+/** Execute EngineScroll targets with measured sticky-header geometry and encoded motion presets. */
 function executeEngineScrollHash(rawHash?: string): string | null {
-	if (typeof window === "undefined") {
-		return null;
-	}
+	if (typeof window === "undefined") return null;
 	const hash = rawHash ?? window.location.hash;
-	if (!hash.startsWith(ES_PROTOCOL)) {
-		return null;
-	}
+	if (!hash.startsWith(ES_PROTOCOL)) return null;
+
 	const params = new URLSearchParams(hash.slice(ES_PROTOCOL.length));
 	const move = params.get("move");
-	if (!move) {
-		return null;
-	}
+	if (!move) return null;
+
+	const requestedDuration = Number(params.get("duration") ?? "550");
+	const duration = [0, 250, 550, 900].includes(requestedDuration) ? requestedDuration : 550;
+	const alignment = params.get("align");
 	const offset = Number(params.get("offset") ?? "-84");
 	const safeOffset = Number.isFinite(offset) ? offset : -84;
+	const highlight = params.get("highlight") !== "0";
 	const targetId = move.startsWith("#") ? move.slice(1) : move;
 
 	if (targetId === "top") {
-		window.scrollTo({ top: Math.max(0, safeOffset), behavior: "smooth" });
+		scrollWindowTo(0, duration);
 		return "top";
 	}
 	if (targetId === "bottom") {
-		window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+		const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+		scrollWindowTo(maxScroll, duration);
 		return "bottom";
 	}
-	const numeric = Number(targetId);
-	if (!Number.isNaN(numeric) && targetId.trim() !== "") {
-		window.scrollTo({ top: Math.max(0, numeric + safeOffset), behavior: "smooth" });
-		return targetId;
+	if (targetId === "percent") {
+		const percent = Number(params.get("percent") ?? "0");
+		if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null;
+		const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+		scrollWindowTo(maxScroll * (percent / 100), duration);
+		return "percent:" + percent;
 	}
 
-	const el = document.getElementById(decodeURIComponent(targetId));
-	if (!el) {
+	const element = document.getElementById(targetId);
+	if (!element) {
+		const fallbackPercent = params.get("percent");
+		if (fallbackPercent !== null) {
+			const percent = Number(fallbackPercent);
+			if (Number.isFinite(percent) && percent >= 0 && percent <= 100) {
+				const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+				scrollWindowTo(maxScroll * (percent / 100), duration);
+				return "percent:" + percent;
+			}
+		}
 		return null;
 	}
-	const top = Math.max(0, el.getBoundingClientRect().top + window.scrollY + safeOffset);
-	window.scrollTo({ top, behavior: "smooth" });
-	// Clear any previous highlight so multiple headings never stay highlighted or stack.
-	document.querySelectorAll(".kd-share-highlight").forEach((node) => {
-		node.classList.remove("kd-share-highlight");
-	});
-	void el.offsetWidth;
-	el.classList.add("kd-share-highlight");
-	clearTimeout(highlightTimer);
-	highlightTimer = setTimeout(() => {
-		el.classList.remove("kd-share-highlight");
-	}, 2200);
+
+	const documentTop = element.getBoundingClientRect().top + window.scrollY;
+	let targetTop = documentTop;
+	switch (alignment) {
+		case "clear":
+			targetTop -= getStickyHeaderClearance();
+			break;
+		case "tight":
+			targetTop -= 8;
+			break;
+		case "center":
+			targetTop -= Math.max(0, (window.innerHeight - element.getBoundingClientRect().height) / 2);
+			break;
+		case "flush":
+			break;
+		default:
+			targetTop += safeOffset;
+	}
+	scrollWindowTo(targetTop, duration);
+
+	if (highlight) {
+		document.querySelectorAll(".kd-share-highlight").forEach((node) => {
+			node.classList.remove("kd-share-highlight");
+		});
+		void element.offsetWidth;
+		element.classList.add("kd-share-highlight");
+		clearTimeout(highlightTimer);
+		highlightTimer = setTimeout(() => {
+			element.classList.remove("kd-share-highlight");
+		}, 2200);
+	}
 	return targetId;
 }
 
@@ -771,24 +838,33 @@ export default function DocsShell({
 	}, [searchOpen, searchResults, selectedSearchIndex]);
 
 
-	// Create a deterministic static /share/<8char> link from pure page data (project, slug, anchor).
+	// New share links are self-contained: stable document identity + target + EngineScroll settings.
 	const handleShareCurrentPage = async () => {
-		if (!page?.slug) {
-			notify("This page cannot be shared with a short link");
+		if (!page?.slug || !page.share?.where) {
+			notify("This page has no generated share identity yet");
 			return;
 		}
 
 		const targetAnchor = normalizeShareAnchor(lastAnchor, page.toc ?? []);
-		const code = encodePageShareCode(project.id, page.slug, targetAnchor);
-		const shareUrl = `${SHARE_LINK_ORIGIN}/share/${code}`;
+		const anchorId = page.share.anchors?.[targetAnchor];
+		const target = anchorId !== undefined
+			? { mode: "anchor" as const, anchorId, scrollPercent: scrollPct }
+			: targetAnchor === "bottom"
+				? { mode: "bottom" as const }
+				: targetAnchor === "top"
+					? { mode: "top" as const }
+					: { mode: "percent" as const, scrollPercent: scrollPct };
+		const code = encodeShareState(page.share.where, target, ENGINE_SCROLL_DEFAULTS);
+		const shareUrl = SHARE_LINK_ORIGIN + "/share/" + code;
 		const recordShare = () => {
 			try {
 				trackEvent("doc_share_create", {
 					code,
+					format: "state-v1",
 					project: project.id,
 					track,
 					generation: activeGeneration ?? "unversioned",
-					slug: page?.slug ?? "overview",
+					slug: page.slug,
 					levelPct: scrollPct,
 				});
 			} catch {
@@ -798,9 +874,9 @@ export default function DocsShell({
 
 		if (typeof navigator.share === "function") {
 			try {
-				await navigator.share({ title: page?.title ?? project.name, url: shareUrl });
+				await navigator.share({ title: page.title ?? project.name, url: shareUrl });
 				recordShare();
-				notify(`Shared /share/${code}`);
+				notify("Shared /share/" + code);
 				return;
 			} catch (error) {
 				if (error instanceof DOMException && error.name === "AbortError") return;
@@ -811,7 +887,7 @@ export default function DocsShell({
 			if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
 			await navigator.clipboard.writeText(shareUrl);
 			recordShare();
-			notify(`Copied /share/${code} (Level ${scrollPct}%)`);
+			notify("Copied /share/" + code + " (Level " + scrollPct + "%)");
 		} catch {
 			notify("Could not copy this share link in the current browser");
 		}

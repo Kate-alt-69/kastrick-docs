@@ -1,6 +1,17 @@
 {
 	"redirects": [
 		{
+			"source": "/share/:code([A-Za-z0-9]{10})",
+			"has": [
+				{
+					"type": "host",
+					"value": "k8d.vercel.app"
+				}
+			],
+			"destination": "https://kastrick-docs.vercel.app/share/:code",
+			"permanent": false
+		},
+		{
 			"source": "/share/:code([A-Za-z0-9]{8})",
 			"has": [
 				{
@@ -13,6 +24,10 @@
 		}
 	],
 	"rewrites": [
+		{
+			"source": "/share/:code([A-Za-z0-9]{10})",
+			"destination": "/share?c=:code"
+		},
 		{
 			"source": "/nextjs-engine/docs/gen-1",
 			"destination": "/nextjs-engine/v1"
@@ -104,6 +119,26 @@
 		{
 			"source": "/share/:code([A-Za-z0-9]{8})",
 			"destination": "/share?c=:code"
+		}
+	],
+	"headers": [
+		{
+			"source": "/share/registry.:revision([a-f0-9]{16}).json",
+			"headers": [
+				{
+					"key": "Cache-Control",
+					"value": "public, max-age=31536000, s-maxage=31536000, immutable"
+				}
+			]
+		},
+		{
+			"source": "/share/registry.json",
+			"headers": [
+				{
+					"key": "Cache-Control",
+					"value": "public, max-age=0, s-maxage=60, stale-while-revalidate=300"
+				}
+			]
 		}
 	]
 }

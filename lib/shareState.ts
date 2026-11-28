@@ -57,7 +57,7 @@ function decodeBase62(input: string): bigint | null {
   return value;
 }
 
-function checksum30(value: bigint, where: string): bigint {
+function checksumBody(value: bigint, where: string): bigint {
   // Include WHERE so a typo in either half is checked; this is not authentication.
   let crc = 0x1f;
   const bits = [...where].flatMap((character) => {
@@ -83,8 +83,11 @@ function packTarget(target: ShareTarget): { mode: number; payload: bigint } {
       if (!Number.isInteger(target.anchorId) || target.anchorId < 0 || target.anchorId > 4095) {
         throw new RangeError("anchorId must be an integer from 0 to 4095");
       }
-      const percent = Math.max(0, Math.min(100, Math.round(target.scrollPercent ?? 0)));
-      return { mode: 2, payload: (BigInt(target.anchorId) << 7n) | BigInt(percent) };
+      const percent = target.scrollPercent ?? 0;
+      if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+        throw new RangeError("scrollPercent must be between 0 and 100");
+      }
+      return { mode: 2, payload: (BigInt(target.anchorId) << 7n) | BigInt(Math.round(percent)) };
     }
     case "line": {
       if (!Number.isInteger(target.line) || target.line < 1 || target.line > 524287) {
@@ -102,12 +105,13 @@ function packTarget(target: ShareTarget): { mode: number; payload: bigint } {
 }
 
 function packEngineScroll(options: EngineScrollOptions): bigint {
-  const duration = options.duration ?? DEFAULT_ENGINE_SCROLL.duration;
-  const alignment = options.alignment ?? DEFAULT_ENGINE_SCROLL.alignment;
-  return (BigInt(duration) << 4n)
-    | (BigInt(alignment) << 2n)
-    | (options.highlight ? 2n : 0n)
-    | (options.reserved ? 1n : 0n);
+  if (![0, 1, 2, 3].includes(options.duration) || ![0, 1, 2, 3].includes(options.alignment)) {
+    throw new RangeError("EngineScroll presets must be integers from 0 to 3");
+  }
+  if (options.reserved) throw new RangeError("The reserved EngineScroll bit must remain zero in v1");
+  return (BigInt(options.duration) << 4n)
+    | (BigInt(options.alignment) << 2n)
+    | (options.highlight ? 2n : 0n);
 }
 
 export function encodeShareState(
@@ -119,13 +123,9 @@ export function encodeShareState(
     throw new TypeError("WHERE must be exactly four Base62 characters");
   }
   const { mode, payload } = packTarget(target);
-  if (options.reserved) throw new RangeError("The reserved EngineScroll bit must remain zero in v1");
-  if (![0, 1, 2, 3].includes(options.duration) || ![0, 1, 2, 3].includes(options.alignment)) {
-    throw new RangeError("EngineScroll presets must be integers from 0 to 3");
-  }
   const engine = packEngineScroll(options);
   const body = (BigInt(VERSION) << 28n) | (BigInt(mode) << 25n) | (payload << 6n) | engine;
-  const packed = (body << 5n) | checksum30(body, where);
+  const packed = (body << 5n) | checksumBody(body, where);
   return where + encodeBase62(packed, 6);
 }
 
@@ -135,7 +135,7 @@ export function decodeShareState(code: string): { where: string; state: DecodedS
   if (packed === null || packed >= (1n << 35n)) return null;
   const checksum = packed & 0x1fn;
   const body = packed >> 5n;
-  if (checksum30(body, code.slice(0, 4)) !== checksum) return null;
+  if (checksumBody(body, code.slice(0, 4)) !== checksum) return null;
 
   const version = Number((body >> 28n) & 0x3n);
   if (version !== VERSION) return null;
@@ -146,6 +146,7 @@ export function decodeShareState(code: string): { where: string; state: DecodedS
   const alignment = ((engine >> 2) & 0x3) as 0 | 1 | 2 | 3;
   const highlight = (engine & 0x2) !== 0;
   const reserved = (engine & 0x1) !== 0;
+  if (reserved) return null;
 
   let target: ShareTarget;
   if (mode === 0 && payload === 0n) target = { mode: "top" };

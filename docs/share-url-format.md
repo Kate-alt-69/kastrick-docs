@@ -1,18 +1,28 @@
 # Share URL format
 
-## Current and compatibility formats
+## Dispatch and compatibility
 
-- Legacy positional links remain exactly eight Base62 characters and must continue through their historical decoder/mapping.
-- The deterministic FNV links introduced by the static manifest remain exactly eight characters and must continue through their historical lookup.
-- New links are exactly ten Base62 characters: `WHERE(4) + STATE(6)`. Length is the dispatch boundary; never reinterpret an eight-character token as the new format.
+Three share formats coexist and are dispatched by exact token length:
+
+- **8 characters, positional v1:** original bit-packed format (project index, track, page index, line/heading index, reading percentage, 11-bit checksum).
+- **8 characters, deterministic v2:** FNV-derived links from the later static manifest. The resolver rebuilds this lookup from current page data.
+- **10 characters, state v1:** self-contained format, `WHERE(4) + STATE(6)`.
+
+Neither eight-character format is reinterpreted as the ten-character format. New share buttons emit ten-character links only.
 
 ## WHERE
 
-Four Base62 characters represent a permanent document identity (62^4 = 14,776,336 possible IDs). IDs are allocated once and never recycled. The registry key is the canonical document identity (project, generation, track and stable source identity), not a mutable page index or current slug. Slug changes update the destination while preserving WHERE. Removed documents become tombstones or explicit aliases.
+Four Base62 characters represent a stable document identity. The build derives the value from a namespaced SHA-256 digest of:
+
+`project | generation | track | sourcePath`
+
+The value is collision-checked on every build. A collision fails the build rather than silently pointing at another page. A slug change does not change source identity. For a source-path move, add the previous identity to that document's `aliases` array in `data/share-registry.json`; the old WHERE resolves to the current destination.
+
+Removed documents can be preserved as tombstones mapping a retired WHERE to a live fallback WHERE. Published IDs are not intentionally reused.
 
 ## STATE v1
 
-STATE is a 35-bit unsigned integer, encoded as six Base62 characters:
+STATE is a 35-bit unsigned integer encoded as six Base62 characters:
 
 | Bits | Width | Meaning |
 |---|---:|---|
@@ -22,29 +32,51 @@ STATE is a 35-bit unsigned integer, encoded as six Base62 characters:
 | 10..5 | 6 | EngineScroll settings |
 | 4..0 | 5 | Checksum |
 
-Payload interpretation:
-- Top/bottom: all 19 bits must be zero.
-- Semantic anchor: 12-bit stable anchor ID followed by 7-bit scroll percentage (0..100).
+Payload:
+- Top/bottom: all 19 bits are zero.
+- Semantic anchor: 12-bit stable anchor ID followed by a 7-bit reading percentage (0..100). The anchor wins while it exists; the percentage is the fallback if its old heading ID no longer resolves.
 - Line: positive 19-bit line number (1..524287).
-- Percentage: 7-bit percentage (0..100); unused high payload bits must be zero.
+- Percentage: 7-bit percentage (0..100); unused high bits must be zero.
 
 EngineScroll settings:
-- duration: 2 bits — 0 instant, 1 250ms, 2 550ms, 3 900ms.
-- alignment: 2 bits — 0 clear sticky header, 1 tight, 2 center, 3 flush.
-- highlight: 1 bit.
-- reserved: 1 bit, must be zero until assigned by a later format revision.
+- Duration: 2 bits — 0 instant, 1 250ms, 2 550ms, 3 900ms.
+- Alignment: 2 bits — 0 clear sticky header, 1 tight, 2 center, 3 flush.
+- Arrival highlight: 1 bit.
+- Reserved: 1 bit, required to be zero in v1.
 
-The clear-sticky-header alignment is resolved at runtime from the actual sticky header geometry, not a fixed pixel constant. A 5-bit checksum covers WHERE plus the 30 STATE body bits. It detects common typos but is not cryptographic authentication.
+Clear-sticky-header measures visible sticky/fixed header geometry when the link opens; it does not use a hard-coded pixel offset. The 5-bit CRC-style checksum covers all 24 WHERE bits plus the 30 STATE body bits. It detects common typos; it is not authentication.
 
-## Registry lifecycle
+## Stable heading IDs and overrides
 
-- Registry changes are append-only for allocated IDs. Never reuse published WHERE or anchor IDs.
-- Anchor IDs are stable within a document and resolve through aliases after heading renames.
-- Deleted anchors fall back to the nearest surviving parent, then document top.
-- Document moves update the registry destination; replacement content must be explicitly aliased or archived.
-- Build output is a snapshot of the authoritative registry and carries its registry revision. Builds must fail if their registry snapshot is stale or internally inconsistent.
-- The static export is served with CDN caching. Registry changes produce a new versioned snapshot URL; immutable cache headers are safe because each revision has a distinct path. A mutable pointer may use short-lived revalidation.
+Heading IDs are derived deterministically per document and collision-checked. To lock an explicit ID, add an `anchorIds` mapping. To retain a renamed heading's former ID, add an `anchorAliases` entry mapping the previous heading slug to the current heading slug. Aliases can point to `top` when no useful heading remains.
 
-## Vercel deployment
+The top-level shape of `data/share-registry.json` is:
 
-This repository currently exports a static Next.js site. Static exports cannot read Edge Config at request time. The supported design is to maintain the registry as versioned source data, publish a versioned static snapshot during the build, and let Vercel's CDN cache that immutable artifact globally. If a future deployment uses server functions, Edge Config can be added as the shared runtime source; it must be connected to the actual docs Vercel project before relying on it.
+```json
+{
+  "schemaVersion": 1,
+  "documents": {
+    "project|generation|track|source/path.md": {
+      "where": "optional explicit ID",
+      "aliases": ["previous|document|identity"],
+      "anchorIds": { "section": 1234 },
+      "anchorAliases": { "old-heading": "new-heading" }
+    }
+  },
+  "tombstones": {
+    "OLD0": "LIVE"
+  }
+}
+```
+
+The build emits:
+- `public/share/registry.<revision>.json`: immutable registry snapshot.
+- `public/share/registry.json`: small mutable pointer to the current revision.
+- Per-page share identity/anchor IDs in `content/manifest.json`.
+- New state links in the existing migration manifest alongside FNV links.
+
+## Vercel and static CDN caching
+
+This repository uses Next.js static export. A static page cannot query Edge Config at request time, so no unrelated Vercel project or runtime store is attached. Vercel serves each revisioned registry snapshot with a one-year immutable CDN cache. The pointer is shared-cache revalidated every 60 seconds and may be served stale for five minutes while revalidating. Each /share page fetches the revision named by its build-generated page prop, so all visitors on that deployment resolve against the same immutable registry version.
+
+The existing eight-character redirects remain in place. Ten-character short-host redirects and rewrites are additive.
