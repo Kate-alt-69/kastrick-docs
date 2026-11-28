@@ -114,7 +114,7 @@ export default function LandingHero({ data }: { data: LandingSiteData }) {
 	const totalPages = published.reduce((sum, project) => sum + project.pageCount, 0);
 	const featured = published.find((project) => project.id === "nextjs-engine") ?? published[0];
 	const firstGuideProject = published.find((project) => project.guideHref);
-	const featuredGuideHref = firstGuideProject?.guideHref ?? featured?.startHref ?? "#ecosystem";
+	const featuredGuideHref = featured?.guideHref ?? firstGuideProject?.guideHref ?? featured?.startHref ?? "#ecosystem";
 
 	return (
 		<div className="kd-doc-home-root kd-home2-root">
@@ -150,10 +150,10 @@ export default function LandingHero({ data }: { data: LandingSiteData }) {
 					<div className="kd-home2-hero-copy">
 						<p className="kd-home2-eyebrow"><span /> THE KASTRICK ECOSYSTEM / TECHNICAL LIBRARY</p>
 						<h1 id="kd-home2-title">
-							The tools behind the work. <em>All in one place.</em>
+							Kastrick engineering. <em>Documented.</em>
 						</h1>
 						<p className="kd-home2-hero-lead">
-							Explore the systems, runtimes, build tools, and creator software taking shape across Kastrick — with the technical context to understand how they fit together.
+							A single index for Kastrick’s software projects. Browse technical references, practical guides, versioned documentation, and the source repositories behind the work.
 						</p>
 						<div className="kd-home2-hero-actions">
 							<a href="#ecosystem" className="kd-home2-button-primary">
@@ -197,16 +197,16 @@ export default function LandingHero({ data }: { data: LandingSiteData }) {
 					<div><strong>{published.length.toString().padStart(2, "0")}</strong><span>Published projects</span></div>
 					<div><strong>{totalPages.toString().padStart(2, "0")}</strong><span>Indexed pages</span></div>
 					<div><strong>{data.projects.length.toString().padStart(2, "0")}</strong><span>Projects tracked</span></div>
-					<p>The documentation stays connected to the projects it describes.</p>
+					<p>Every project index links back to its source repository.</p>
 				</section>
 
 				<section id="ecosystem" className="kd-home2-section" aria-labelledby="kd-home2-ecosystem-title">
 					<div className="kd-home2-section-heading">
 						<div>
 							<p className="kd-home2-section-kicker">01 / THE ECOSYSTEM</p>
-							<h2 id="kd-home2-ecosystem-title">Built for different layers of the stack.</h2>
+							<h2 id="kd-home2-ecosystem-title">Explore the projects.</h2>
 						</div>
-						<p>Each project has its own purpose, source repository, and documentation path. Start with what you need; follow the connections from there.</p>
+						<p>Open a project index to see its reference pages, guides, supported versions, and source repository.</p>
 					</div>
 
 					<div className="kd-home2-project-grid">
@@ -219,9 +219,9 @@ export default function LandingHero({ data }: { data: LandingSiteData }) {
 						<div className="kd-home2-section-heading kd-home2-section-heading-compact">
 							<div>
 								<p className="kd-home2-section-kicker">02 / ON THE WORKBENCH</p>
-								<h2 id="kd-home2-upcoming-title">More is taking shape.</h2>
+								<h2 id="kd-home2-upcoming-title">Documentation in preparation.</h2>
 							</div>
-							<p>These projects are part of the wider ecosystem. Their documentation will grow alongside the work.</p>
+							<p>These projects are listed in the directory, but their documentation is not published yet.</p>
 						</div>
 						<div className="kd-home2-upcoming-grid">
 							{upcoming.map((project) => <InPreparationCard key={project.id} project={project} />)}
@@ -233,9 +233,9 @@ export default function LandingHero({ data }: { data: LandingSiteData }) {
 					<div className="kd-home2-section-heading">
 						<div>
 							<p className="kd-home2-section-kicker">03 / THE LIBRARY</p>
-							<h2 id="kd-home2-library-title">Find the right way in.</h2>
+							<h2 id="kd-home2-library-title">Choose a starting point.</h2>
 						</div>
-						<p>Move from a high-level overview to the detail you need without losing the thread.</p>
+						<p>Use reference pages for detailed behavior, guides for task-based walkthroughs, or the source repository for implementation.</p>
 					</div>
 
 					<div className="kd-home2-entry-grid">
@@ -260,8 +260,8 @@ export default function LandingHero({ data }: { data: LandingSiteData }) {
 				<section id="approach" className="kd-home2-bottom-cta">
 					<div>
 						<p className="kd-home2-section-kicker">A BETTER PLACE TO START</p>
-						<h2>Understand the system before you change it.</h2>
-						<p>Browse the project index, choose a generation where it matters, and keep the source close while you work.</p>
+						<h2>Go from project overview to source.</h2>
+						<p>Choose a project, confirm its version, then open the reference or guide you need.</p>
 					</div>
 					<Link href={featured?.startHref ?? "#ecosystem"} className="kd-home2-button-primary">
 						Open the library <span aria-hidden="true">↗</span>
