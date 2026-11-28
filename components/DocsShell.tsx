@@ -14,7 +14,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { DocPageMeta, DocTrack, DocsManifest, ProjectRecord } from "@/lib/content";
-import { normalizeShareAnchor, SHARE_LINK_ORIGIN } from "@/lib/shareCode";
+import { CANONICAL_DOCS_ORIGIN, normalizeShareAnchor, SHARE_LINK_ORIGIN } from "@/lib/shareCode";
 import { encodeShareState, ENGINE_SCROLL_DEFAULTS } from "@/lib/shareState";
 
 interface DocsShellProps {
@@ -856,7 +856,14 @@ export default function DocsShell({
 					? { mode: "top" as const }
 					: { mode: "percent" as const, scrollPercent: scrollPct };
 		const code = encodeShareState(page.share.where, target, ENGINE_SCROLL_DEFAULTS);
-		const shareUrl = SHARE_LINK_ORIGIN + "/share/" + code;
+		const canonicalHost = new URL(CANONICAL_DOCS_ORIGIN).hostname;
+		const publicShareHost = new URL(SHARE_LINK_ORIGIN).hostname;
+		const isProductionDocsHost = window.location.hostname === canonicalHost;
+		const isPublicShareHost = window.location.hostname === publicShareHost;
+		const shareOrigin = isProductionDocsHost || isPublicShareHost
+			? SHARE_LINK_ORIGIN
+			: window.location.origin;
+		const shareUrl = shareOrigin + "/share/" + code;
 		const recordShare = () => {
 			try {
 				trackEvent("doc_share_create", {
