@@ -12,7 +12,10 @@
 		"build:offline": "node scripts/run_py.js scripts/build.py --offline",
 		"dev": "next dev",
 		"start": "node scripts/serve-static.js",
-		"type-check": "tsc --noEmit"
+		"type-check": "tsc --noEmit",
+		"test:share-state": "node --experimental-strip-types --test tests/shareState.test.mjs",
+		"test:share-registry": "node scripts/run_py.js scripts/test_share_registry.py",
+		"test:share": "npm run test:share-state && npm run test:share-registry"
 	},
 	"dependencies": {
 		"@vercel/analytics": "^2.0.1",

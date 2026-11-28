@@ -13,6 +13,7 @@ sync_docs.py — Per-build static documentation fetcher, structurer & link rewri
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -20,6 +21,7 @@ import posixpath
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from datetime import datetime, timezone
@@ -126,6 +128,9 @@ DOCS_PUBLIC_ORIGIN = "https://k8d.vercel.app"
 DOCS_CANONICAL_ORIGIN = "https://kastrick-docs.vercel.app"
 LEGACY_SITE_ORIGIN = "https://kastrick.vercel.app"
 MIGRATION_MANIFEST_FILE = REPO_ROOT / "public" / "share" / "manifest.json"
+SHARE_REGISTRY_SOURCE_FILE = REPO_ROOT / "data" / "share-registry.json"
+SHARE_REGISTRY_PUBLIC_DIR = REPO_ROOT / "public" / "share"
+SHARE_BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 
 def legacy_paths_for_page(project_id: str, source_path: str) -> list[str]:
@@ -241,6 +246,295 @@ def build_page_share_links(project_id: str, slug: str, toc: list[dict[str, Any]]
 		add_link(hid, htitle)
 	return links
 
+
+
+def share_document_identity(project_id: str, page: dict[str, Any]) -> str:
+	"""Canonical identity stays independent of a page's current public slug."""
+	source_path = str(page.get("sourcePath") or page.get("localFile") or page.get("slug") or "").replace("\\", "/").strip("/")
+	if not source_path:
+		raise ValueError(f"Share registry page in {project_id} has no stable source identity.")
+	generation = str(page.get("generation") or "unversioned")
+	track = str(page.get("track") or "docs")
+	return "|".join((project_id.strip().lower(), generation, track, source_path))
+
+
+def _encode_share_base62(value: int, width: int) -> str:
+	if value < 0 or value >= 62 ** width:
+		raise ValueError(f"Share identifier does not fit in {width} Base62 characters.")
+	output = ""
+	for _ in range(width):
+		output = SHARE_BASE62[value % 62] + output
+		value //= 62
+	return output
+
+
+def stable_share_where(identity: str) -> str:
+	"""Produce a reproducible 4-character document ID; collisions are checked by the registry builder."""
+	digest = hashlib.sha256(("k8d-share-document-v1|" + identity).encode("utf-8")).digest()
+	return _encode_share_base62(int.from_bytes(digest[:8], "big") % (62 ** 4), 4)
+
+
+def stable_share_anchor_id(where: str, anchor: str) -> int:
+	"""Produce a reproducible 12-bit ID scoped to a document identity."""
+	digest = hashlib.sha256(("k8d-share-anchor-v1|" + where + "|" + anchor).encode("utf-8")).digest()
+	return int.from_bytes(digest[:8], "big") % 4096
+
+
+def encode_share_state_code(where: str, mode: int, payload: int, duration: int = 2, alignment: int = 0, highlight: bool = True) -> str:
+	"""Python mirror of lib/shareState.ts so migration manifests emit matching state links."""
+	if len(where) != 4 or not re.fullmatch(r"[0-9A-Za-z]{4}", where):
+		raise ValueError("WHERE must be exactly four Base62 characters.")
+	if mode < 0 or mode > 4 or payload < 0 or payload > 0x7FFFF:
+		raise ValueError("Share target mode or payload is outside the v1 range.")
+	if duration not in range(4) or alignment not in range(4):
+		raise ValueError("EngineScroll presets must be in the range 0..3.")
+	if mode in (0, 1) and payload != 0:
+		raise ValueError("Top and bottom targets must have an empty payload.")
+	if mode == 3 and payload == 0:
+		raise ValueError("Line targets must be positive.")
+	if mode == 4 and payload > 100:
+		raise ValueError("Percentage targets must be in the range 0..100.")
+	if mode == 2 and ((payload >> 7) > 4095 or (payload & 0x7F) > 100):
+		raise ValueError("Anchor target payload is invalid.")
+
+	engine = (duration << 4) | (alignment << 2) | (2 if highlight else 0)
+	body = (1 << 28) | (mode << 25) | (payload << 6) | engine
+	crc = 0x1F
+	bits: list[int] = []
+	for character in where:
+		digit = SHARE_BASE62.index(character)
+		bits.extend((digit >> shift) & 1 for shift in range(5, -1, -1))
+	bits.extend((body >> shift) & 1 for shift in range(29, -1, -1))
+	for incoming in bits:
+		feedback = ((crc >> 4) & 1) ^ incoming
+		crc = (crc << 1) & 0x1F
+		if feedback:
+			crc ^= 0x05
+	packed = (body << 5) | crc
+	return where + _encode_share_base62(packed, 6)
+
+
+def write_share_registry(projects: list[dict[str, Any]], generated_at: str) -> str:
+	"""Generate stable document/anchor identities and versioned static CDN snapshots."""
+	if not SHARE_REGISTRY_SOURCE_FILE.is_file():
+		raise FileNotFoundError(
+			f"Missing share-registry source file: {SHARE_REGISTRY_SOURCE_FILE.relative_to(REPO_ROOT)}"
+		)
+	source = json.loads(SHARE_REGISTRY_SOURCE_FILE.read_text(encoding="utf-8"))
+	if source.get("schemaVersion") != 1:
+		raise ValueError("data/share-registry.json must use schemaVersion 1.")
+	overrides = source.get("documents", {})
+	tombstones = source.get("tombstones", {})
+	if not isinstance(overrides, dict) or not isinstance(tombstones, dict):
+		raise ValueError("Share registry documents and tombstones must be JSON objects.")
+
+	documents_by_id: dict[str, dict[str, Any]] = {}
+	where_owners: dict[str, str] = {}
+
+	def register_id(identifier: str, owner: str, document: dict[str, Any]) -> None:
+		previous = where_owners.get(identifier)
+		if previous is not None and previous != owner:
+			raise ValueError(
+				f"Share WHERE collision {identifier}: {previous!r} conflicts with {owner!r}. "
+				"Assign a unique explicit WHERE in data/share-registry.json."
+			)
+		where_owners[identifier] = owner
+		documents_by_id[identifier] = {**document, "where": identifier}
+
+	for project in projects:
+		if not project.get("established", False):
+			continue
+		for page in project.get("pages", []):
+			identity = share_document_identity(project["id"], page)
+			override = overrides.get(identity, {})
+			if not isinstance(override, dict):
+				raise ValueError(f"Share registry override for {identity!r} must be an object.")
+
+			where = str(override.get("where") or stable_share_where(identity))
+			if not re.fullmatch(r"[0-9A-Za-z]{4}", where):
+				raise ValueError(f"Invalid explicit WHERE {where!r} for {identity!r}.")
+
+			explicit_anchor_ids = override.get("anchorIds", {})
+			anchor_aliases = override.get("anchorAliases", {})
+			identity_aliases = override.get("aliases", [])
+			if not isinstance(explicit_anchor_ids, dict) or not isinstance(anchor_aliases, dict):
+				raise ValueError(f"Anchor mappings for {identity!r} must be JSON objects.")
+			for explicit_anchor, explicit_id in explicit_anchor_ids.items():
+				if not isinstance(explicit_anchor, str) or not explicit_anchor:
+					raise ValueError(f"Explicit anchor keys for {identity!r} must be non-empty strings.")
+				if isinstance(explicit_id, bool) or not isinstance(explicit_id, int) or not 0 <= explicit_id <= 4095:
+					raise ValueError(f"Anchor ID for {identity!r} / {explicit_anchor!r} must be an integer from 0 to 4095.")
+			if not isinstance(identity_aliases, list) or not all(isinstance(item, str) and item for item in identity_aliases):
+				raise ValueError(f"Document aliases for {identity!r} must be non-empty identity strings.")
+
+			current_anchor_names = sorted({
+				str(heading.get("id", "")).strip()
+				for heading in page.get("toc", [])
+				if str(heading.get("id", "")).strip()
+			})
+
+			for old_anchor, new_anchor in anchor_aliases.items():
+				if not isinstance(old_anchor, str) or not old_anchor:
+					raise ValueError(f"Old anchor aliases for {identity!r} must use non-empty strings.")
+				if not isinstance(new_anchor, str) or not new_anchor:
+					raise ValueError(f"Anchor aliases for {identity!r} must map to non-empty strings.")
+				if new_anchor != "top" and new_anchor not in current_anchor_names:
+					raise ValueError(
+						f"Anchor alias {old_anchor!r} in {identity!r} points to missing target {new_anchor!r}."
+					)
+			document = {
+				"canonicalWhere": where,
+				"identity": identity,
+				"projectId": project["id"],
+				"slug": str(page.get("slug", "")).strip("/"),
+				"track": page.get("track", "docs"),
+				"generation": str(page.get("generation") or "unversioned"),
+				"title": str(page.get("title") or page.get("slug") or project["name"]),
+				"sourcePath": str(page.get("sourcePath", "")),
+				"anchorsById": {},
+			}
+
+			lookup_wheres = [where]
+			for old_identity in identity_aliases:
+				if old_identity == identity:
+					raise ValueError(f"Document identity {identity!r} cannot alias itself.")
+				old_where = stable_share_where(old_identity)
+				if old_where not in lookup_wheres:
+					lookup_wheres.append(old_where)
+
+			def allocate_anchor_ids(lookup_where: str) -> tuple[dict[str, int], dict[str, str]]:
+				# Deterministic linear probing resolves rare 12-bit collisions. Explicit
+				# IDs are reserved first so hand-pinned anchors never move around hashes.
+				anchor_targets = {anchor: anchor for anchor in current_anchor_names}
+				anchor_targets.update(anchor_aliases)
+				assigned: dict[str, int] = {}
+				owners: dict[int, str] = {}
+
+				for anchor_key in sorted(anchor_targets):
+					explicit_id = explicit_anchor_ids.get(anchor_key)
+					if explicit_id is None:
+						continue
+					target_anchor = anchor_targets[anchor_key]
+					previous_target = owners.get(explicit_id)
+					if previous_target is not None and previous_target != target_anchor:
+						raise ValueError(
+							f"Explicit anchor ID collision {explicit_id} in {identity!r}: "
+							f"{previous_target!r} conflicts with {target_anchor!r}."
+						)
+					assigned[anchor_key] = explicit_id
+					owners[explicit_id] = target_anchor
+
+				for anchor_key in sorted(anchor_targets):
+					if anchor_key in assigned:
+						continue
+					target_anchor = anchor_targets[anchor_key]
+					candidate = stable_share_anchor_id(lookup_where, anchor_key)
+					start_candidate = candidate
+					while candidate in owners and owners[candidate] != target_anchor:
+						candidate = (candidate + 1) % 4096
+						if candidate == start_candidate:
+							raise ValueError(
+								f"No free 12-bit anchor IDs remain in {identity!r}; "
+								"pin or remove headings in data/share-registry.json."
+							)
+					assigned[anchor_key] = candidate
+					owners[candidate] = target_anchor
+
+				by_id = {str(assigned[key]): target for key, target in anchor_targets.items()}
+				current = {anchor: assigned[anchor] for anchor in current_anchor_names}
+				return current, by_id
+
+			anchors_by_id: dict[str, str] = {}
+			current_anchors: dict[str, int] = {}
+			for lookup_where in lookup_wheres:
+				allocated_current, allocated_lookup = allocate_anchor_ids(lookup_where)
+				if lookup_where == where:
+					current_anchors = allocated_current
+				anchors_by_id.update(allocated_lookup)
+
+			document["anchorsById"] = anchors_by_id
+			page["share"] = {"where": where, "anchors": current_anchors}
+			register_id(where, identity, document)
+
+			for old_identity in identity_aliases:
+				old_where = stable_share_where(old_identity)
+				register_id(old_where, identity, document)
+
+	# Explicit tombstones prevent retired IDs from being silently reused.
+	for retired_where, target_where in tombstones.items():
+		if not re.fullmatch(r"[0-9A-Za-z]{4}", retired_where):
+			raise ValueError(f"Invalid tombstone WHERE {retired_where!r}.")
+		target = documents_by_id.get(str(target_where))
+		if target is None:
+			raise ValueError(
+				f"Tombstone {retired_where!r} points to unknown live WHERE {target_where!r}."
+			)
+		retired_anchors = dict(target["anchorsById"])
+		for resolved_anchor in set(target["anchorsById"].values()):
+			retired_anchor_id = stable_share_anchor_id(retired_where, resolved_anchor)
+			retired_anchors[str(retired_anchor_id)] = resolved_anchor
+		register_id(retired_where, "tombstone:" + retired_where, {
+			**target,
+			"canonicalWhere": target["canonicalWhere"],
+			"anchorsById": retired_anchors,
+			"retired": True,
+		})
+
+	snapshot_content = {
+		"schemaVersion": 1,
+		"documentsById": documents_by_id,
+	}
+	canonical_json = json.dumps(snapshot_content, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+	revision = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()[:16]
+	snapshot = {**snapshot_content, "revision": revision}
+	SHARE_REGISTRY_PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
+	versioned_name = f"registry.{revision}.json"
+	(SHARE_REGISTRY_PUBLIC_DIR / versioned_name).write_text(
+		json.dumps(snapshot, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+		encoding="utf-8",
+	)
+	pointer = {
+		"schemaVersion": 1,
+		"revision": revision,
+		"url": "/share/" + versioned_name,
+		"generatedAt": generated_at,
+	}
+	(SHARE_REGISTRY_PUBLIC_DIR / "registry.json").write_text(
+		json.dumps(pointer, ensure_ascii=False, indent=2) + "\n",
+		encoding="utf-8",
+	)
+	return revision
+
+
+def build_state_share_links(project: dict[str, Any], page: dict[str, Any]) -> list[dict[str, str]]:
+	"""Create ten-character links for a page top and each semantic TOC anchor."""
+	share = page.get("share") or {}
+	where = share.get("where")
+	if not where:
+		return []
+	links: list[dict[str, str]] = []
+
+	def add_link(mode: int, payload: int, anchor: str, title: str) -> None:
+		code = encode_share_state_code(where, mode, payload)
+		target = "#-es?move=" + urllib.parse.quote(anchor, safe="") + "&duration=550&align=clear&highlight=1"
+		links.append({
+			"code": code,
+			"shareUrl": f"{DOCS_PUBLIC_ORIGIN}/share/{code}",
+			"anchor": anchor,
+			"title": title,
+			"targetUrl": "/" + project["id"] + "/" + str(page.get("slug", "")).strip("/") + target,
+		})
+
+	add_link(0, 0, "top", "Top of page")
+	for heading in page.get("toc", []):
+		anchor = str(heading.get("id", "")).strip()
+		anchor_id = share.get("anchors", {}).get(anchor)
+		if not anchor or anchor_id is None:
+			continue
+		add_link(2, (int(anchor_id) << 7), anchor, str(heading.get("text") or anchor))
+	return links
+
+
 def write_migration_manifest(projects: list[dict[str, Any]], generated_at: str) -> int:
 	"""Publish the old Kastrick documentation URL map for the main site to consume."""
 	project_entries: list[dict[str, Any]] = []
@@ -260,6 +554,8 @@ def write_migration_manifest(projects: list[dict[str, Any]], generated_at: str) 
 			legacy_paths = legacy_paths_for_page(project["id"], source_path)
 			share_links = build_page_share_links(project["id"], slug, page.get("toc", []))
 			primary_share = share_links[0]
+			state_share_links = build_state_share_links(project, page)
+			primary_state_share = state_share_links[0] if state_share_links else None
 			entry = {
 				"sourcePath": source_path,
 				"path": path,
@@ -270,12 +566,31 @@ def write_migration_manifest(projects: list[dict[str, Any]], generated_at: str) 
 				"shareCode": primary_share["code"],
 				"shareUrl": primary_share["shareUrl"],
 				"shareTargetUrl": primary_share["targetUrl"],
+				"stateShareCode": primary_state_share["code"] if primary_state_share else None,
+				"stateShareUrl": primary_state_share["shareUrl"] if primary_state_share else None,
+				"stateShareTargetUrl": primary_state_share["targetUrl"] if primary_state_share else None,
+				"stateShareLinks": state_share_links,
 				"shareLinks": share_links,
 				"legacyPaths": legacy_paths,
 			}
 			pages.append(entry)
 			for link in share_links:
 				share_codes[link["code"]] = {
+					"projectId": project["id"],
+					"slug": slug.strip("/"),
+					"track": page.get("track", "docs"),
+					"generation": page.get("generation"),
+					"anchor": link["anchor"],
+					"title": link["title"],
+					"path": path,
+					"shareUrl": link["shareUrl"],
+					"targetUrl": link["targetUrl"],
+				}
+
+			for link in state_share_links:
+				share_codes[link["code"]] = {
+					"format": "state-v1",
+					"where": page.get("share", {}).get("where"),
 					"projectId": project["id"],
 					"slug": slug.strip("/"),
 					"track": page.get("track", "docs"),
@@ -771,6 +1086,10 @@ def main() -> int:
 			"syncedSha": None,
 			"pages": pages,
 		})
+
+	registry_revision = write_share_registry(manifest["projects"], manifest["generatedAt"])
+	manifest["shareRegistryRevision"] = registry_revision
+	print(f"[sync_docs] Wrote versioned share registry revision {registry_revision}.")
 
 	CONTENT_DIR.mkdir(parents=True, exist_ok=True)
 	MANIFEST_FILE.write_text(json.dumps(manifest, indent="\t") + "\n", encoding="utf-8")

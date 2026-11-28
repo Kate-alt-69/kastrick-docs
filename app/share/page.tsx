@@ -1,23 +1,23 @@
 // app/share/page.tsx — Static share resolver entry point.
-// Build-time project/page metadata is passed to a small client component so
-// /share/<code> can resolve a project, track, page, and exact reading anchor.
+// The immutable snapshot itself is fetched by the client from the revisioned CDN URL.
 
 import React from "react";
 import ShareResolver from "@/components/ShareResolver";
-import { loadManifest } from "@/lib/content";
+import { loadManifest, loadShareRegistry } from "@/lib/content";
 
 export default function SharePage() {
 	const manifest = loadManifest();
+	const registry = loadShareRegistry();
 	const projects = manifest.projects.map((project) => ({
 		id: project.id,
 		generations: project.generations?.map((generation) => ({ id: generation.id })),
-		pages: project.pages.map((page) => ({
-			slug: page.slug,
-			track: page.track,
-			generation: page.generation,
-			toc: page.toc.map((item) => ({ id: item.id })),
+		pages: project.pages.map((item) => ({
+			slug: item.slug,
+			track: item.track,
+			generation: item.generation,
+			toc: item.toc.map((heading) => ({ id: heading.id })),
 		})),
 	}));
 
-	return <ShareResolver projects={projects} />;
+	return <ShareResolver projects={projects} registryRevision={registry.revision} />;
 }

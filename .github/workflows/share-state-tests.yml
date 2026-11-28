@@ -1,0 +1,46 @@
+name: Share URL checks
+
+on:
+  push:
+    branches: ["feature/share-state-registry"]
+  pull_request:
+    branches: ["preview-main"]
+    paths:
+      - "lib/shareState.ts"
+      - "lib/shareCode.ts"
+      - "lib/content.ts"
+      - "components/ShareResolver.tsx"
+      - "components/DocsShell.tsx"
+      - "scripts/sync_docs.py"
+      - "scripts/test_share_registry.py"
+      - "tests/shareState.test.mjs"
+      - "data/share-registry.json"
+      - "package.json"
+      - "package-lock.json"
+      - "vercel.json"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Share codec, registry, and type safety
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: npm ci
+      - name: Run share regression tests
+        run: npm run test:share
+      - name: Type-check application
+        run: npm run type-check

@@ -2,7 +2,7 @@
 // Derives static /share/<8char> codes purely from page data (projectId, slug, and
 // anchor/parameter) using an embedded zero-dependency 64-bit FNV-1a hash so adding,
 // removing, or reordering other pages never invalidates existing share links.
-// Legacy bit-packed index codes are intentionally unsupported.
+// The original positional eight-character codec remains available below for archived links.
 
 const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const BASE = BigInt(ALPHABET.length);
@@ -138,4 +138,61 @@ export function buildPageShareEntries(
 		addEntry(heading.id, heading.text ?? heading.id);
 	}
 	return entries;
+}
+
+
+/**
+ * The first published share format packed positional indexes into eight Base62
+ * characters. Keep this decoder indefinitely for archived links; new links must
+ * use encodeShareState from shareState.ts instead.
+ */
+export interface LegacySharePayload {
+	projectIdx: number;
+	trackIdx: number;
+	pageIdx: number;
+	lineIdx: number;
+	levelPct: number;
+}
+
+const LEGACY_MASK_11 = 0x7ff;
+
+function legacyChecksum(packed: bigint): bigint {
+	const mixed = (packed * BigInt(2654435761)) ^ (packed >> 11n);
+	return mixed & BigInt(LEGACY_MASK_11);
+}
+
+export function decodeLegacyShareCode(code: string): LegacySharePayload | null {
+	if (code.length !== 8 || !/^[0-9A-Za-z]{8}$/.test(code)) return null;
+	let value = 0n;
+	for (const character of code) {
+		const digit = ALPHABET.indexOf(character);
+		if (digit < 0) return null;
+		value = value * BASE + BigInt(digit);
+	}
+	const checksum = value & BigInt(LEGACY_MASK_11);
+	const body = value >> 11n;
+	if (legacyChecksum(body) !== checksum) return null;
+	const levelPct = Number(body & 0x7fn);
+	const lineIdx = Number((body >> 7n) & 0xfffn);
+	const pageIdx = Number((body >> 19n) & 0x7fn);
+	const trackIdx = Number((body >> 26n) & 0x1n);
+	const projectIdx = Number((body >> 27n) & 0xfn);
+	return { projectIdx, trackIdx, pageIdx, lineIdx, levelPct };
+}
+
+/** Test/migration helper reproducing the original positional encoder exactly. */
+export function encodeLegacyShareCode(payload: LegacySharePayload): string {
+	const project = BigInt(payload.projectIdx & 0xf);
+	const track = BigInt(payload.trackIdx & 0x1);
+	const page = BigInt(payload.pageIdx & 0x7f);
+	const line = BigInt(payload.lineIdx & 0xfff);
+	const level = BigInt(Math.max(0, Math.min(100, Math.round(payload.levelPct))) & 0x7f);
+	const body = (project << 27n) | (track << 26n) | (page << 19n) | (line << 7n) | level;
+	let value = (body << 11n) | legacyChecksum(body);
+	let output = "";
+	for (let index = 0; index < 8; index += 1) {
+		output = ALPHABET[Number(value % BASE)] + output;
+		value /= BASE;
+	}
+	return output;
 }
