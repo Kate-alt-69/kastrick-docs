@@ -3014,7 +3014,7 @@ button {
 }
 
 .kd-toc-progress-track {
-	height: 3px;
+	height: 5px;
 	overflow: hidden;
 	border: 1px solid var(--kd-border);
 	border-radius: 1px;
@@ -3028,21 +3028,12 @@ button {
 	transition: width 0.18s linear;
 }
 
-.kd-toc-progress-secondary {
+.kd-toc-share-button {
+	width: 100%;
+	justify-content: center;
 	margin-top: 0.78rem;
-	padding-top: 0.68rem;
-	border-top: 1px solid var(--kd-border);
-}
-
-.kd-toc-progress-secondary .kd-toc-progress-track span {
-	background: linear-gradient(90deg, var(--kd-accent), #61c5d7);
-}
-
-.kd-toc-progress-note {
-	margin: 0.3rem 0 0;
-	color: var(--kd-subtle);
-	font-size: 0.59rem;
-	line-height: 1.4;
+	border-radius: 4px;
+	font-size: 0.72rem;
 }
 
 .kd-toc-outline {
