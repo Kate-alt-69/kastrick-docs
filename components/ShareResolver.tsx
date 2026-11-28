@@ -1,12 +1,21 @@
 "use client";
 
+/**
+ * ShareResolver.tsx
+ *
+ * Resolves static /share/<8char> links against build-time page data only.
+ * Builds a deterministic Map<code, target> from each page's top anchor and
+ * every TOC heading parameter, then redirects using EngineScroll.
+ * Legacy positional bit-packed codes are intentionally rejected.
+ */
+
 import { track } from "@vercel/analytics";
 import { useRouter } from "next/navigation";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
+	buildEngineScrollTarget,
 	CANONICAL_DOCS_ORIGIN,
-	decodeShareCode,
-	SHARE_HEADING_ANCHOR_BASE,
+	encodePageShareCode,
 	SHARE_LINK_ORIGIN,
 } from "@/lib/shareCode";
 
@@ -23,6 +32,15 @@ interface ShareTargetProject {
 	pages: ShareTargetPage[];
 }
 
+interface ResolvedShareTarget {
+	projectId: string;
+	slug: string;
+	track: "docs" | "guides";
+	generation: string;
+	anchor: string;
+	destination: string;
+}
+
 interface ShareResolverProps {
 	projects: ShareTargetProject[];
 }
@@ -30,7 +48,31 @@ interface ShareResolverProps {
 export default function ShareResolver({ projects }: ShareResolverProps) {
 	const router = useRouter();
 	const [status, setStatus] = useState<"loading" | "invalid">("loading");
-	const [message, setMessage] = useState("Reading the shared page and scroll position.");
+	const [message, setMessage] = useState("Reading the shared page and EngineScroll target.");
+
+	// Build a static O(1) lookup table purely from page data (projectId + slug + anchor).
+	const shareLookup = useMemo(() => {
+		const map = new Map<string, ResolvedShareTarget>();
+		for (const project of projects) {
+			for (const page of project.pages) {
+				const anchors = ["top", ...page.toc.map((heading) => heading.id)];
+				for (const anchor of anchors) {
+					if (!anchor) continue;
+					const code = encodePageShareCode(project.id, page.slug, anchor);
+					if (map.has(code)) continue;
+					map.set(code, {
+						projectId: project.id,
+						slug: page.slug,
+						track: page.track,
+						generation: page.generation ?? "unversioned",
+						anchor,
+						destination: buildEngineScrollTarget(project.id, page.slug, anchor),
+					});
+				}
+			}
+		}
+		return map;
+	}, [projects]);
 
 	useEffect(() => {
 		const params = new URLSearchParams(window.location.search);
@@ -39,75 +81,34 @@ export default function ShareResolver({ projects }: ShareResolverProps) {
 		const pathMatch = window.location.pathname.match(/\/share\/([A-Za-z0-9]{8})\/?$/);
 		const code = (fromQuery || fromHash || pathMatch?.[1] || "").trim();
 
-		const decoded = decodeShareCode(code);
-		if (!decoded) {
+		const resolved = code.length === 8 ? shareLookup.get(code) : undefined;
+		if (!resolved) {
 			setStatus("invalid");
-			setMessage("That share code is invalid or has expired.");
+			setMessage("That share code is invalid, retired, or no longer exists in the static manifest.");
 			return;
-		}
-
-		const project = projects[decoded.projectIdx];
-		if (!project) {
-			setStatus("invalid");
-			setMessage("The project referenced by this share link could not be found.");
-			return;
-		}
-
-		const trackName = decoded.trackIdx === 1 ? "guides" : "docs";
-		const generation = project.generations?.[decoded.generationIdx] ?? project.generations?.[0];
-		const generationPages = generation
-			? project.pages.filter((page) => page.generation === generation.id)
-			: project.pages;
-		const trackPages = generationPages.filter((page) => page.track === trackName);
-		const targetPage = trackPages[decoded.pageIdx];
-		if (!targetPage) {
-			setStatus("invalid");
-			setMessage("The page referenced by this share link is no longer in the documentation index.");
-			return;
-		}
-
-		let targetAnchor = "top";
-		if (decoded.lineIdx >= SHARE_HEADING_ANCHOR_BASE) {
-			const heading = targetPage.toc[decoded.lineIdx - SHARE_HEADING_ANCHOR_BASE];
-			if (!heading) {
-				setStatus("invalid");
-				setMessage("The heading referenced by this share link could not be found.");
-				return;
-			}
-			targetAnchor = heading.id;
-		} else if (decoded.lineIdx > 0) {
-			targetAnchor = "L" + decoded.lineIdx;
 		}
 
 		try {
 			track("doc_share_open", {
 				code,
-				project: project.id,
-				track: trackName,
-				generation: generation?.id ?? "unversioned",
-				page: targetPage.slug,
-				line: targetAnchor,
-				levelPct: decoded.levelPct,
+				project: resolved.projectId,
+				track: resolved.track,
+				generation: resolved.generation,
+				page: resolved.slug,
+				anchor: resolved.anchor,
 			});
 		} catch {
 			// Analytics must never prevent a share link from resolving.
 		}
 
-		const destination =
-			"/" + project.id + "/" + targetPage.slug +
-			"#-es?move=" + encodeURIComponent(targetAnchor) +
-			"&offset=-84&duration=550";
-
-		// Vercel also redirects /share/<code> at the edge. Keep this fallback so
-		// query-style or client-routed share links opened on the short host still
-		// land on the canonical documentation domain.
+		// Redirect to canonical docs host if opened on the short-link origin.
 		if (window.location.hostname === new URL(SHARE_LINK_ORIGIN).hostname) {
-			window.location.replace(new URL(destination, CANONICAL_DOCS_ORIGIN).toString());
+			window.location.replace(new URL(resolved.destination, CANONICAL_DOCS_ORIGIN).toString());
 			return;
 		}
 
-		router.replace(destination);
-	}, [projects, router]);
+		router.replace(resolved.destination);
+	}, [router, shareLookup]);
 
 	return (
 		<main className="kd-share-resolver">
@@ -127,7 +128,7 @@ export default function ShareResolver({ projects }: ShareResolverProps) {
 						<div className="kd-share-progress" aria-hidden="true">
 							<span />
 						</div>
-						<p className="kd-share-footnote">Taking you to the exact reading spot</p>
+						<p className="kd-share-footnote">Taking you to the exact EngineScroll section</p>
 					</>
 				) : (
 					<>

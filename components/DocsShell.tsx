@@ -14,7 +14,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { DocPageMeta, DocTrack, DocsManifest, ProjectRecord } from "@/lib/content";
-import { encodeShareCode, SHARE_HEADING_ANCHOR_BASE, SHARE_LINK_ORIGIN } from "@/lib/shareCode";
+import { encodePageShareCode, normalizeShareAnchor, SHARE_LINK_ORIGIN } from "@/lib/shareCode";
 
 interface DocsShellProps {
 	manifest: DocsManifest;
@@ -771,34 +771,15 @@ export default function DocsShell({
 	}, [searchOpen, searchResults, selectedSearchIndex]);
 
 
-	// Create a compact /share/<code> link for the current page, reading anchor, and scroll depth.
+	// Create a deterministic static /share/<8char> link from pure page data (project, slug, anchor).
 	const handleShareCurrentPage = async () => {
-		const projectIdx = manifest.projects.findIndex((item) => item.id === project.id);
-		const pageIdx = trackPages.findIndex((item) => item.slug === page?.slug);
-		if (projectIdx < 0 || projectIdx > 15 || trackPages.length === 0 || pageIdx > 511) {
+		if (!page?.slug) {
 			notify("This page cannot be shared with a short link");
 			return;
 		}
 
-		const generationIdx = activeGeneration
-			? Math.max(0, project.generations?.findIndex((item) => item.id === activeGeneration) ?? 0)
-			: 0;
-		const lineMatch = lastAnchor.match(/^L(\d+)$/);
-		const headingIdx = page?.toc.findIndex((item) => item.id === lastAnchor) ?? -1;
-		const parsedLine = lineMatch ? Number(lineMatch[1]) : 0;
-		const lineIdx = parsedLine > 0
-			? Math.min(parsedLine, SHARE_HEADING_ANCHOR_BASE - 1)
-			: headingIdx >= 0
-				? SHARE_HEADING_ANCHOR_BASE + headingIdx
-				: 0;
-		const code = encodeShareCode({
-			projectIdx,
-			trackIdx: track === "guides" ? 1 : 0,
-			generationIdx,
-			pageIdx: Math.max(0, pageIdx),
-			lineIdx,
-			levelPct: scrollPct,
-		});
+		const targetAnchor = normalizeShareAnchor(lastAnchor, page.toc ?? []);
+		const code = encodePageShareCode(project.id, page.slug, targetAnchor);
 		const shareUrl = `${SHARE_LINK_ORIGIN}/share/${code}`;
 		const recordShare = () => {
 			try {

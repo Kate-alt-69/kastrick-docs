@@ -1,9 +1,15 @@
-// lib/shareCode.ts — Deterministic 8-character Base62 share code encoder/decoder.
-// Packs project, generation, track, page, exact line/anchor, and scroll level into
-// an 8-character Base62 /share/<code> token with a lightweight checksum.
+// lib/shareCode.ts — Deterministic 8-character Base62 share code generator.
+// Derives static /share/<8char> codes purely from page data (projectId, slug, and
+// anchor/parameter) using an embedded zero-dependency 64-bit FNV-1a hash so adding,
+// removing, or reordering other pages never invalidates existing share links.
+// Legacy bit-packed index codes are intentionally unsupported.
 
 const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const BASE = BigInt(ALPHABET.length);
+const FNV_OFFSET_BASIS = BigInt("0xcbf29ce484222325");
+const FNV_PRIME = BigInt("0x100000001b3");
+const MASK_64 = BigInt("0xffffffffffffffff");
+const MASK_46 = (BigInt(1) << BigInt(46)) - BigInt(1);
 
 /** Public short-link host used when copying generated documentation share URLs. */
 export const SHARE_LINK_ORIGIN = "https://k8d.vercel.app";
@@ -11,49 +17,92 @@ export const SHARE_LINK_ORIGIN = "https://k8d.vercel.app";
 /** Canonical site that owns documentation pages and resolves shared targets. */
 export const CANONICAL_DOCS_ORIGIN = "https://kastrick-docs.vercel.app";
 
-/** Values at or above this number represent page.toc heading indexes; lower values are L# anchors. */
-export const SHARE_HEADING_ANCHOR_BASE = 2048;
+/** Default EngineScroll top offset (px) to clear the sticky documentation header. */
+export const ENGINE_SCROLL_OFFSET = -84;
 
-export interface SharePayload {
-	projectIdx: number; // 0..15  (4 bits)
-	trackIdx: number;   // 0..1   (1 bit: 0 = docs, 1 = guides)
-	generationIdx: number; // 0 = Generation 3; 1 = archived Generation 2
-	pageIdx: number;    // 0..511 (9 bits)
-	lineIdx: number;    // 0 = top, 1..2047 = L# line, 2048..4095 = TOC heading index
-	levelPct: number;   // 0..100 (7 bits)
+/** Default EngineScroll smooth-scroll duration (ms). */
+export const ENGINE_SCROLL_DURATION = 550;
+
+export interface StaticShareEntry {
+	code: string;
+	shareUrl: string;
+	anchor: string;
+	title: string;
+	targetUrl: string;
 }
 
-/** Compute an 11-bit integrity checksum for a packed generation-aware payload. */
-function computeChecksum(packed: bigint): bigint {
-	const mixed = (packed * BigInt(2654435761)) ^ (packed >> BigInt(11));
-	return mixed & BigInt(0x7ff);
+/** Normalize a documentation slug by trimming leading and trailing slashes. */
+export function normalizeShareSlug(slug: string): string {
+	return slug.trim().replace(/^\/+|\/+$/g, "");
 }
 
-/** Encode a SharePayload into a fixed 8-character Base62 code. */
-export function encodeShareCode(payload: SharePayload): string {
-	const p = BigInt(payload.projectIdx & 0xf);
-	const t = BigInt(payload.trackIdx & 0x1);
-	const generation = BigInt(payload.generationIdx & 0x1);
-	const pg = BigInt(payload.pageIdx & 0x1ff);
-	const ln = BigInt(payload.lineIdx & 0xfff);
-	const lvl = BigInt(Math.max(0, Math.min(100, Math.round(payload.levelPct))) & 0x7f);
+/**
+ * Resolve the canonical static anchor parameter for a page so every generated
+ * share link matches a static entry in public/share/manifest.json.
+ */
+export function normalizeShareAnchor(
+	anchor: string | null | undefined,
+	toc: Array<{ id: string }>,
+): string {
+	const cleaned = (anchor ?? "").trim();
+	if (!cleaned || cleaned === "top") {
+		return "top";
+	}
+	const matchingHeading = toc.find((item) => item.id === cleaned);
+	return matchingHeading ? matchingHeading.id : "top";
+}
 
-	// Bit 34 marks the generation-aware layout. New codes support up to 512 pages per generation; older 8-character codes never
-	// used this bit, so existing shared links continue to resolve as Gen 3.
-	const body =
-		(BigInt(1) << BigInt(34)) |
-		(p << BigInt(30)) |
-		(t << BigInt(29)) |
-		(generation << BigInt(28)) |
-		(pg << BigInt(19)) |
-		(ln << BigInt(7)) |
-		lvl;
+/** Build the canonical EngineScroll destination URL for a page and anchor parameter. */
+export function buildEngineScrollTarget(
+	projectId: string,
+	slug: string,
+	anchor = "top",
+): string {
+	const normalizedSlug = normalizeShareSlug(slug);
+	const normalizedAnchor = (anchor || "top").trim() || "top";
+	return (
+		"/" +
+		projectId.trim() +
+		"/" +
+		normalizedSlug +
+		"#-es?move=" +
+		encodeURIComponent(normalizedAnchor) +
+		"&offset=" +
+		ENGINE_SCROLL_OFFSET +
+		"&duration=" +
+		ENGINE_SCROLL_DURATION
+	);
+}
 
-	const checksum = computeChecksum(body);
-	let value = (body << BigInt(11)) | checksum;
+/**
+ * Deterministically hash pure page data (projectId, slug, anchor) into a fixed
+ * 8-character Base62 share code. Matches encode_page_share_code() in scripts/sync_docs.py
+ * bit-for-bit with zero external dependencies.
+ */
+export function encodePageShareCode(
+	projectId: string,
+	slug: string,
+	anchor = "top",
+): string {
+	const key =
+		"k8d-v2|" +
+		projectId.trim().toLowerCase() +
+		"|" +
+		normalizeShareSlug(slug) +
+		"|" +
+		((anchor || "top").trim() || "top");
 
+	const bytes = new TextEncoder().encode(key);
+	let hash = FNV_OFFSET_BASIS;
+	for (let index = 0; index < bytes.length; index += 1) {
+		hash ^= BigInt(bytes[index]);
+		hash = (hash * FNV_PRIME) & MASK_64;
+	}
+
+	// Fold 64-bit hash into 46 bits (fits cleanly inside 8 Base62 characters: 62^8 > 2^47).
+	let value = (hash ^ (hash >> BigInt(18))) & MASK_46;
 	let out = "";
-	for (let i = 0; i < 8; i++) {
+	for (let index = 0; index < 8; index += 1) {
 		const rem = Number(value % BASE);
 		out = ALPHABET[rem] + out;
 		value = value / BASE;
@@ -61,35 +110,32 @@ export function encodeShareCode(payload: SharePayload): string {
 	return out;
 }
 
-/** Decode an 8-character Base62 share code back into its exact page + level target. */
-export function decodeShareCode(code: string): SharePayload | null {
-	if (!code || code.length !== 8) {
-		return null;
-	}
-	let value = BigInt(0);
-	for (const ch of code) {
-		const idx = ALPHABET.indexOf(ch);
-		if (idx < 0) {
-			return null;
-		}
-		value = value * BASE + BigInt(idx);
-	}
+/** Build all static /share/<8char> entries for a page (top + every TOC heading parameter). */
+export function buildPageShareEntries(
+	projectId: string,
+	slug: string,
+	toc: Array<{ id: string; text?: string }>,
+): StaticShareEntry[] {
+	const seenAnchors = new Set<string>();
+	const entries: StaticShareEntry[] = [];
 
-	const checksum = value & BigInt(0x7ff);
-	const body = value >> BigInt(11);
-	if (computeChecksum(body) !== checksum) {
-		return null;
+	const addEntry = (anchor: string, title: string): void => {
+		if (seenAnchors.has(anchor)) return;
+		seenAnchors.add(anchor);
+		const code = encodePageShareCode(projectId, slug, anchor);
+		entries.push({
+			code,
+			shareUrl: `${SHARE_LINK_ORIGIN}/share/${code}`,
+			anchor,
+			title,
+			targetUrl: buildEngineScrollTarget(projectId, slug, anchor),
+		});
+	};
+
+	addEntry("top", "Top of page");
+	for (const heading of toc) {
+		if (!heading?.id) continue;
+		addEntry(heading.id, heading.text ?? heading.id);
 	}
-
-	const hasGenerationMarker = (body & (BigInt(1) << BigInt(34))) !== BigInt(0);
-	const levelPct = Number(body & BigInt(0x7f));
-	const lineIdx = Number((body >> BigInt(7)) & BigInt(0xfff));
-	const pageIdx = Number((body >> BigInt(19)) & BigInt(hasGenerationMarker ? 0x1ff : 0x7f));
-	const trackIdx = Number((body >> BigInt(hasGenerationMarker ? 29 : 26)) & BigInt(0x1));
-	const projectIdx = Number((body >> BigInt(hasGenerationMarker ? 30 : 27)) & BigInt(0xf));
-	const generationIdx = hasGenerationMarker
-		? Number((body >> BigInt(28)) & BigInt(0x1))
-		: 0;
-
-	return { projectIdx, trackIdx, generationIdx, pageIdx, lineIdx, levelPct };
+	return entries;
 }

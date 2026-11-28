@@ -178,10 +178,74 @@ def legacy_paths_for_page(project_id: str, source_path: str) -> list[str]:
 	return []
 
 
+
+SHARE_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+SHARE_FNV_OFFSET = 0xCBF29CE484222325
+SHARE_FNV_PRIME = 0x100000001B3
+SHARE_MASK_64 = 0xFFFFFFFFFFFFFFFF
+SHARE_MASK_46 = (1 << 46) - 1
+ENGINE_SCROLL_OFFSET = -84
+ENGINE_SCROLL_DURATION = 550
+
+
+def encode_page_share_code(project_id: str, slug: str, anchor: str = "top") -> str:
+	"""Derive a deterministic 8-char Base62 share code purely from page data (matches lib/shareCode.ts)."""
+	clean_slug = slug.strip().strip("/")
+	clean_anchor = (anchor or "top").strip() or "top"
+	key = f"k8d-v2|{project_id.strip().lower()}|{clean_slug}|{clean_anchor}".encode("utf-8")
+
+	h = SHARE_FNV_OFFSET
+	for byte in key:
+		h ^= byte
+		h = (h * SHARE_FNV_PRIME) & SHARE_MASK_64
+
+	value = (h ^ (h >> 18)) & SHARE_MASK_46
+	base = len(SHARE_ALPHABET)
+	chars = []
+	for _ in range(8):
+		chars.append(SHARE_ALPHABET[value % base])
+		value //= base
+	return "".join(reversed(chars))
+
+
+def build_engine_scroll_target(project_id: str, slug: str, anchor: str = "top") -> str:
+	"""Build the canonical EngineScroll destination URL for a page and anchor parameter."""
+	clean_slug = slug.strip().strip("/")
+	clean_anchor = (anchor or "top").strip() or "top"
+	encoded_anchor = urllib.parse.quote(clean_anchor, safe="")
+	return f"/{project_id.strip()}/{clean_slug}#-es?move={encoded_anchor}&offset={ENGINE_SCROLL_OFFSET}&duration={ENGINE_SCROLL_DURATION}"
+
+
+def build_page_share_links(project_id: str, slug: str, toc: list[dict[str, Any]]) -> list[dict[str, str]]:
+	"""Create static /share/<8char> entries for the page top and every TOC heading parameter."""
+	seen: set[str] = set()
+	links: list[dict[str, str]] = []
+
+	def add_link(anchor: str, title: str) -> None:
+		if not anchor or anchor in seen:
+			return
+		seen.add(anchor)
+		code = encode_page_share_code(project_id, slug, anchor)
+		links.append({
+			"code": code,
+			"shareUrl": f"{DOCS_PUBLIC_ORIGIN}/share/{code}",
+			"anchor": anchor,
+			"title": title,
+			"targetUrl": build_engine_scroll_target(project_id, slug, anchor),
+		})
+
+	add_link("top", "Top of page")
+	for heading in toc:
+		hid = str(heading.get("id", "")).strip()
+		htitle = str(heading.get("text", hid)).strip() or hid
+		add_link(hid, htitle)
+	return links
+
 def write_migration_manifest(projects: list[dict[str, Any]], generated_at: str) -> int:
 	"""Publish the old Kastrick documentation URL map for the main site to consume."""
 	project_entries: list[dict[str, Any]] = []
 	redirects_by_source: dict[str, dict[str, str]] = {}
+	share_codes: dict[str, dict[str, Any]] = {}
 
 	for project in projects:
 		if not project.get("established", False) or not project.get("pages"):
@@ -194,6 +258,8 @@ def write_migration_manifest(projects: list[dict[str, Any]], generated_at: str) 
 				continue
 			path = "/" + project["id"] + "/" + slug.strip("/")
 			legacy_paths = legacy_paths_for_page(project["id"], source_path)
+			share_links = build_page_share_links(project["id"], slug, page.get("toc", []))
+			primary_share = share_links[0]
 			entry = {
 				"sourcePath": source_path,
 				"path": path,
@@ -201,9 +267,25 @@ def write_migration_manifest(projects: list[dict[str, Any]], generated_at: str) 
 				"title": page.get("title", ""),
 				"section": page.get("section", "Documentation"),
 				"track": page.get("track", "docs"),
+				"shareCode": primary_share["code"],
+				"shareUrl": primary_share["shareUrl"],
+				"shareTargetUrl": primary_share["targetUrl"],
+				"shareLinks": share_links,
 				"legacyPaths": legacy_paths,
 			}
 			pages.append(entry)
+			for link in share_links:
+				share_codes[link["code"]] = {
+					"projectId": project["id"],
+					"slug": slug.strip("/"),
+					"track": page.get("track", "docs"),
+					"generation": page.get("generation"),
+					"anchor": link["anchor"],
+					"title": link["title"],
+					"path": path,
+					"shareUrl": link["shareUrl"],
+					"targetUrl": link["targetUrl"],
+				}
 			for legacy_path in legacy_paths:
 				previous = redirects_by_source.get(legacy_path)
 				if previous and previous["to"] != entry["url"]:
@@ -272,13 +354,14 @@ def write_migration_manifest(projects: list[dict[str, Any]], generated_at: str) 
 		{"fromPrefix": "/product/nextjs-engine/doc", "to": engine_fallback, "mode": "fixed", "projectId": "nextjs-engine"},
 	]
 	payload = {
-		"schemaVersion": 1,
+		"schemaVersion": 2,
 		"generatedAt": generated_at,
 		"legacyOrigin": LEGACY_SITE_ORIGIN,
 		"docsOrigin": DOCS_PUBLIC_ORIGIN,
 		"canonicalDocsOrigin": DOCS_CANONICAL_ORIGIN,
 		"manifestUrl": DOCS_PUBLIC_ORIGIN + "/share/manifest.json",
 		"projects": project_entries,
+		"shareCodes": share_codes,
 		"redirects": sorted(redirects_by_source.values(), key=lambda item: item["from"]),
 		"prefixFallbacks": prefix_fallbacks,
 	}
