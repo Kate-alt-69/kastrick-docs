@@ -367,36 +367,21 @@ def write_share_registry(projects: list[dict[str, Any]], generated_at: str) -> s
 			if not isinstance(identity_aliases, list) or not all(isinstance(item, str) and item for item in identity_aliases):
 				raise ValueError(f"Document aliases for {identity!r} must be non-empty identity strings.")
 
-			current_anchors: dict[str, int] = {}
-			anchor_owners: dict[int, str] = {}
-			for heading in page.get("toc", []):
-				anchor = str(heading.get("id", "")).strip()
-				if not anchor:
-					continue
-				raw_id = explicit_anchor_ids.get(anchor)
-				if raw_id is None:
-					anchor_id = stable_share_anchor_id(where, anchor)
-				else:
-					if isinstance(raw_id, bool) or not isinstance(raw_id, int) or not 0 <= raw_id <= 4095:
-						raise ValueError(f"Anchor ID for {identity!r} / {anchor!r} must be an integer from 0 to 4095.")
-					anchor_id = raw_id
-				previous_anchor = anchor_owners.get(anchor_id)
-				if previous_anchor is not None and previous_anchor != anchor:
-					raise ValueError(
-						f"Anchor ID collision {anchor_id} in {identity!r}: "
-						f"{previous_anchor!r} conflicts with {anchor!r}."
-					)
-				anchor_owners[anchor_id] = anchor
-				current_anchors[anchor] = anchor_id
+			current_anchor_names = sorted({
+				str(heading.get("id", "")).strip()
+				for heading in page.get("toc", [])
+				if str(heading.get("id", "")).strip()
+			})
 
 			for old_anchor, new_anchor in anchor_aliases.items():
-				if not isinstance(old_anchor, str) or not isinstance(new_anchor, str):
-					raise ValueError(f"Anchor aliases for {identity!r} must map strings to strings.")
-				if new_anchor != "top" and new_anchor not in current_anchors:
+				if not isinstance(old_anchor, str) or not old_anchor:
+					raise ValueError(f"Old anchor aliases for {identity!r} must use non-empty strings.")
+				if not isinstance(new_anchor, str) or not new_anchor:
+					raise ValueError(f"Anchor aliases for {identity!r} must map to non-empty strings.")
+				if new_anchor != "top" and new_anchor not in current_anchor_names:
 					raise ValueError(
 						f"Anchor alias {old_anchor!r} in {identity!r} points to missing target {new_anchor!r}."
 					)
-
 			document = {
 				"canonicalWhere": where,
 				"identity": identity,
@@ -417,32 +402,55 @@ def write_share_registry(projects: list[dict[str, Any]], generated_at: str) -> s
 				if old_where not in lookup_wheres:
 					lookup_wheres.append(old_where)
 
+			def allocate_anchor_ids(lookup_where: str) -> tuple[dict[str, int], dict[str, str]]:
+				# Deterministic linear probing resolves rare 12-bit collisions. Explicit
+				# IDs are reserved first so hand-pinned anchors never move around hashes.
+				anchor_targets = {anchor: anchor for anchor in current_anchor_names}
+				anchor_targets.update(anchor_aliases)
+				assigned: dict[str, int] = {}
+				owners: dict[int, str] = {}
+
+				for anchor_key in sorted(anchor_targets):
+					explicit_id = explicit_anchor_ids.get(anchor_key)
+					if explicit_id is None:
+						continue
+					target_anchor = anchor_targets[anchor_key]
+					previous_target = owners.get(explicit_id)
+					if previous_target is not None and previous_target != target_anchor:
+						raise ValueError(
+							f"Explicit anchor ID collision {explicit_id} in {identity!r}: "
+							f"{previous_target!r} conflicts with {target_anchor!r}."
+						)
+					assigned[anchor_key] = explicit_id
+					owners[explicit_id] = target_anchor
+
+				for anchor_key in sorted(anchor_targets):
+					if anchor_key in assigned:
+						continue
+					target_anchor = anchor_targets[anchor_key]
+					candidate = stable_share_anchor_id(lookup_where, anchor_key)
+					start_candidate = candidate
+					while candidate in owners and owners[candidate] != target_anchor:
+						candidate = (candidate + 1) % 4096
+						if candidate == start_candidate:
+							raise ValueError(
+								f"No free 12-bit anchor IDs remain in {identity!r}; "
+								"pin or remove headings in data/share-registry.json."
+							)
+					assigned[anchor_key] = candidate
+					owners[candidate] = target_anchor
+
+				by_id = {str(assigned[key]): target for key, target in anchor_targets.items()}
+				current = {anchor: assigned[anchor] for anchor in current_anchor_names}
+				return current, by_id
+
 			anchors_by_id: dict[str, str] = {}
+			current_anchors: dict[str, int] = {}
 			for lookup_where in lookup_wheres:
-				for anchor in current_anchors:
-					anchor_id = explicit_anchor_ids.get(anchor)
-					if anchor_id is None:
-						anchor_id = stable_share_anchor_id(lookup_where, anchor)
-					key = str(anchor_id)
-					previous_anchor = anchors_by_id.get(key)
-					if previous_anchor is not None and previous_anchor != anchor:
-						raise ValueError(
-							f"Anchor alias ID collision {key} in {identity!r}: "
-							f"{previous_anchor!r} conflicts with {anchor!r}."
-						)
-					anchors_by_id[key] = anchor
-				for old_anchor, new_anchor in anchor_aliases.items():
-					alias_id = explicit_anchor_ids.get(old_anchor)
-					if alias_id is None:
-						alias_id = stable_share_anchor_id(lookup_where, old_anchor)
-					key = str(alias_id)
-					previous_anchor = anchors_by_id.get(key)
-					if previous_anchor is not None and previous_anchor != new_anchor:
-						raise ValueError(
-							f"Anchor alias collision {key} in {identity!r}: "
-							f"{previous_anchor!r} conflicts with {new_anchor!r}."
-						)
-					anchors_by_id[key] = new_anchor
+				allocated_current, allocated_lookup = allocate_anchor_ids(lookup_where)
+				if lookup_where == where:
+					current_anchors = allocated_current
+				anchors_by_id.update(allocated_lookup)
 
 			document["anchorsById"] = anchors_by_id
 			page["share"] = {"where": where, "anchors": current_anchors}

@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import sync_docs
+from unittest import mock
 
 
 class ShareRegistryTests(unittest.TestCase):
@@ -95,6 +96,24 @@ class ShareRegistryTests(unittest.TestCase):
 		self.assertEqual(retired["canonicalWhere"], live_where)
 		self.assertTrue(retired["retired"])
 		self.assertEqual(retired["anchorsById"][str(old_anchor_id)], "live-heading")
+
+	def test_hash_collisions_are_resolved_deterministically(self):
+		page = self.page(source_path="docs/collisions.md", heading="gamma")
+		page["toc"] = [
+			{"id": "gamma", "text": "Gamma"},
+			{"id": "alpha", "text": "Alpha"},
+			{"id": "beta", "text": "Beta"},
+		]
+		with mock.patch.object(sync_docs, "stable_share_anchor_id", return_value=143):
+			sync_docs.write_share_registry(self.project(page), "2026-11-28T00:00:00Z")
+		self.assertEqual(page["share"]["anchors"], {
+			"alpha": 143,
+			"beta": 144,
+			"gamma": 145,
+		})
+		snapshot = self.snapshot()
+		where = page["share"]["where"]
+		self.assertEqual(set(snapshot["documentsById"][where]["anchorsById"]), {"143", "144", "145"})
 
 	def test_duplicate_explicit_where_fails_instead_of_misrouting(self):
 		page_a = self.page(source_path="docs/a.md", heading="first")

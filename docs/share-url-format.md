@@ -48,7 +48,7 @@ Clear-sticky-header measures visible sticky/fixed header geometry when the link 
 
 ## Stable heading IDs and overrides
 
-Heading IDs are derived deterministically per document and collision-checked. To lock an explicit ID, add an `anchorIds` mapping. To retain a renamed heading's former ID, add an `anchorAliases` entry mapping the previous heading slug to the current heading slug. Aliases can point to `top` when no useful heading remains.
+Heading IDs are derived deterministically per document. Rare 12-bit collisions are resolved by deterministic linear probing; explicit `anchorIds` mappings are reserved first. To pin IDs so later additions cannot move them, add an `anchorIds` mapping. To retain a renamed heading's former ID, add an `anchorAliases` entry mapping the previous heading slug to the current heading slug. Aliases can point to `top` when no useful heading remains.
 
 The top-level shape of `data/share-registry.json` is:
 
