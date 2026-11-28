@@ -152,8 +152,9 @@ export function decodeShareState(code: string): { where: string; state: DecodedS
   if (mode === 0 && payload === 0n) target = { mode: "top" };
   else if (mode === 1 && payload === 0n) target = { mode: "bottom" };
   else if (mode === 2) {
-    target = { mode: "anchor", anchorId: Number(payload >> 7n), scrollPercent: Number(payload & 0x7fn) };
-    if (target.scrollPercent > 100) return null;
+    const scrollPercent = Number(payload & 0x7fn);
+    if (scrollPercent > 100) return null;
+    target = { mode: "anchor", anchorId: Number(payload >> 7n), scrollPercent };
   } else if (mode === 3 && payload > 0n) target = { mode: "line", line: Number(payload) };
   else if (mode === 4 && payload <= 100n) target = { mode: "percent", scrollPercent: Number(payload) };
   else return null;
