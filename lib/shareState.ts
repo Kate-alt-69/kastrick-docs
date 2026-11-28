@@ -57,11 +57,17 @@ function decodeBase62(input: string): bigint | null {
   return value;
 }
 
-function checksum30(value: bigint): bigint {
-  // Five-bit CRC-like rolling checksum; typo detection, not authentication.
+function checksum30(value: bigint, where: string): bigint {
+  // Include WHERE so a typo in either half is checked; this is not authentication.
   let crc = 0x1f;
+  const bits = [...where].flatMap((character) => {
+    const digit = ALPHABET.indexOf(character);
+    return Array.from({ length: 6 }, (_, index) => (digit >> (5 - index)) & 1);
+  });
   for (let bit = 29; bit >= 0; bit -= 1) {
-    const incoming = Number((value >> BigInt(bit)) & 1n);
+    bits.push(Number((value >> BigInt(bit)) & 1n));
+  }
+  for (const incoming of bits) {
     const feedback = ((crc >> 4) & 1) ^ incoming;
     crc = (crc << 1) & 0x1f;
     if (feedback) crc ^= 0x05;
@@ -113,9 +119,13 @@ export function encodeShareState(
     throw new TypeError("WHERE must be exactly four Base62 characters");
   }
   const { mode, payload } = packTarget(target);
+  if (options.reserved) throw new RangeError("The reserved EngineScroll bit must remain zero in v1");
+  if (![0, 1, 2, 3].includes(options.duration) || ![0, 1, 2, 3].includes(options.alignment)) {
+    throw new RangeError("EngineScroll presets must be integers from 0 to 3");
+  }
   const engine = packEngineScroll(options);
   const body = (BigInt(VERSION) << 28n) | (BigInt(mode) << 25n) | (payload << 6n) | engine;
-  const packed = (body << 5n) | checksum30(body);
+  const packed = (body << 5n) | checksum30(body, where);
   return where + encodeBase62(packed, 6);
 }
 
@@ -125,7 +135,7 @@ export function decodeShareState(code: string): { where: string; state: DecodedS
   if (packed === null || packed >= (1n << 35n)) return null;
   const checksum = packed & 0x1fn;
   const body = packed >> 5n;
-  if (checksum30(body) !== checksum) return null;
+  if (checksum30(body, code.slice(0, 4)) !== checksum) return null;
 
   const version = Number((body >> 28n) & 0x3n);
   if (version !== VERSION) return null;
