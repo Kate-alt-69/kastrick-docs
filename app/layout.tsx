@@ -2,6 +2,7 @@
 
 import type { Metadata, Viewport } from "next";
 import React from "react";
+import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { siteMetadata } from "@/data/site";
 import NavigationProgress from "@/components/NavigationProgress";
@@ -37,6 +38,7 @@ export default function RootLayout({
 					<NavigationProgress />
 				</React.Suspense>
 				{children}
+				<Analytics />
 				<SpeedInsights />
 			</body>
 		</html>
