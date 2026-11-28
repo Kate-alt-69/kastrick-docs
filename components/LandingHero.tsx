@@ -99,8 +99,11 @@ export default function LandingHero({ manifest }: LandingHeroProps) {
 						<Link href="/rbe" className="kd-btn-primary">
 							Explore RBE Docs →
 						</Link>
-						<Link href="/nextjs-engine" className="kd-btn-secondary">
-							Next.js Engine (Gen 3)
+						<Link href="/nextjs-engine/docs/3" className="kd-btn-secondary">
+							Next.js Engine · Gen 3
+						</Link>
+						<Link href="/nextjs-engine/docs/2" className="kd-btn-secondary">
+							Next.js Engine · Gen 2 archive
 						</Link>
 						<a
 							href="https://kastrick.vercel.app"
@@ -146,7 +149,9 @@ export default function LandingHero({ manifest }: LandingHeroProps) {
 					</div>
 					<div className="kd-landing-grid">
 						{established.map((project) => {
-							const firstPage = project.pages[0];
+							const firstPage = project.generations?.[0]
+								? project.pages.find((page) => page.slug === project.generations?.[0]?.defaultSlug) ?? project.pages[0]
+								: project.pages[0];
 							return (
 								<article key={project.id} className="kd-landing-card">
 									<div className="kd-landing-card-top">

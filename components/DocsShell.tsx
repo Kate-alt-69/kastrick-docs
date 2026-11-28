@@ -2,7 +2,7 @@
 // Includes:
 //   - Top Projects dropdown (RBE, Next.js Engine, PackageX, PackX, PackageX SDKs, Kastrick's Utility)
 //   - Docs / Guides dual tracks & Ctrl/Cmd+K instant search
-//   - Right-side vertical scroll-progress Battery ("Click to Share") emitting /share/<8char> URLs
+//   - Right-side reading context, section outline, and independent page-position progress
 //   - EngineScroll #-es?move=<target>&offset=-84&duration=550 share URL resolution
 //   - In-app Pinning/Bookmarks + Android-style floating text-selection pill (Copy | Pin | Notebook)
 //   - Verbatim CC BY-ND 4.0 .md download & GitHub Issue edit links
@@ -14,7 +14,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { DocPageMeta, DocTrack, DocsManifest, ProjectRecord } from "@/lib/content";
-import { decodeShareCode, encodeShareCode, SHARE_HEADING_ANCHOR_BASE, SHARE_LINK_ORIGIN } from "@/lib/shareCode";
 
 interface DocsShellProps {
 	manifest: DocsManifest;
@@ -52,6 +51,8 @@ interface DocsSearchEntry {
 	projectId: string;
 	projectName: string;
 	track: DocTrack;
+	generation?: string;
+	generationLabel?: string;
 	slug: string;
 	title: string;
 	section: string;
@@ -69,6 +70,8 @@ function isDocsSearchEntry(value: unknown): value is DocsSearchEntry {
 	return typeof item.projectId === "string" &&
 		typeof item.projectName === "string" &&
 		(item.track === "docs" || item.track === "guides") &&
+		(item.generation === undefined || item.generation === null || typeof item.generation === "string") &&
+		(item.generationLabel === undefined || item.generationLabel === null || typeof item.generationLabel === "string") &&
 		typeof item.slug === "string" &&
 		typeof item.title === "string" &&
 		typeof item.section === "string" &&
@@ -178,6 +181,8 @@ export default function DocsShell({
 	rawMarkdown,
 }: DocsShellProps) {
 	const router = useRouter();
+	const activeGeneration = page?.generation ?? project.generations?.[0]?.id ?? null;
+	const activeGenerationRecord = project.generations?.find((generation) => generation.id === activeGeneration);
 	const [projectsOpen, setProjectsOpen] = useState(false);
 	const [pagesOpen, setPagesOpen] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -192,17 +197,13 @@ export default function DocsShell({
 	const [highlightTerm, setHighlightTerm] = useState("");
 	const [bookmarksOpen, setBookmarksOpen] = useState(false);
 	const [notebookOpen, setNotebookOpen] = useState(false);
-	const [shareOpen, setShareOpen] = useState(false);
 	const [mobileNavOpen, setMobileNavOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [toast, setToast] = useState<string | null>(null);
 	const [scrollPct, setScrollPct] = useState(0);
 	const [articleProgress, setArticleProgress] = useState(0);
 	const [activeTocId, setActiveTocId] = useState("");
-	const [showBattery, setShowBattery] = useState(false);
 	const [lastAnchor, setLastAnchor] = useState("top");
-	const [shortShareUrl, setShortShareUrl] = useState("");
-	const [shortCodeInput, setShortCodeInput] = useState("");
 	const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
 	const [notebook, setNotebook] = useState<NotebookItem[]>([]);
 	const [notebookQuery, setNotebookQuery] = useState("");
@@ -272,6 +273,7 @@ export default function DocsShell({
 		} else {
 			setSearchOpen(false);
 		}
+		window.dispatchEvent(new Event("kd:navigation-start"));
 		router.push(
 			"/" + result.projectId + "/" + result.slug + "?kd-find=" + encodeURIComponent(term),
 		);
@@ -327,11 +329,11 @@ export default function DocsShell({
 		})).then((loaded) => {
 			if (cancelled) return;
 			setSearchIndex((current) => {
-				const seen = new Set(current.map((item) => item.projectId + "/" + item.track + "/" + item.slug));
+				const seen = new Set(current.map((item) => item.projectId + "/" + item.track + "/" + (item.generation ?? "") + "/" + item.slug));
 				return [
 					...current,
 					...loaded.flat().filter((item) => {
-						const key = item.projectId + "/" + item.track + "/" + item.slug;
+						const key = item.projectId + "/" + item.track + "/" + (item.generation ?? "") + "/" + item.slug;
 						if (seen.has(key)) return false;
 						seen.add(key);
 						return true;
@@ -421,11 +423,6 @@ export default function DocsShell({
 		const onScroll = () => {
 			const doc = document.documentElement;
 			const maxScroll = Math.max(0, doc.scrollHeight - window.innerHeight);
-			const readingContentBottom = articleRef.current
-				? articleRef.current.getBoundingClientRect().bottom + window.scrollY
-				: 0;
-			const usefulScrollDepth = Math.max(220, Math.round(window.innerHeight * 0.32));
-			setShowBattery(readingContentBottom - window.innerHeight > usefulScrollDepth);
 			setScrollPct(maxScroll > 0
 				? Math.max(0, Math.min(100, Math.round((window.scrollY / maxScroll) * 100)))
 				: 0);
@@ -584,7 +581,6 @@ export default function DocsShell({
 				setProjectsOpen(false);
 				setBookmarksOpen(false);
 				setNotebookOpen(false);
-				setShareOpen(false);
 				setMobileNavOpen(false);
 				setSelectionBar((prev) => ({ ...prev, visible: false }));
 			}
@@ -650,8 +646,10 @@ export default function DocsShell({
 	}, []);
 
 	const trackPages = useMemo(
-		() => project.pages.filter((p) => p.track === track),
-		[project.pages, track],
+		() => project.pages.filter((p) =>
+			p.track === track && (!activeGeneration || p.generation === activeGeneration)
+		),
+		[project.pages, track, activeGeneration],
 	);
 
 	const sidebarGroups = useMemo(() => {
@@ -660,7 +658,7 @@ export default function DocsShell({
 			(acc[section] ||= []).push(item);
 			return acc;
 		}, {});
-		const sectionOrder = new Map((project.sectionOrder ?? []).map((section, index) => [section, index]));
+		const sectionOrder = new Map((activeGenerationRecord?.sectionOrder ?? project.sectionOrder ?? []).map((section, index) => [section, index]));
 
 		return Object.entries(grouped)
 			.map(([sectionName, items]) => ({ sectionName, items }))
@@ -672,7 +670,7 @@ export default function DocsShell({
 				}
 				return a.sectionName.localeCompare(b.sectionName);
 			});
-	}, [trackPages, track, project.sectionOrder]);
+	}, [trackPages, track, project.sectionOrder, activeGenerationRecord]);
 
 	const outlineItems = useMemo(() => {
 		let sectionNumber = 0;
@@ -736,7 +734,8 @@ export default function DocsShell({
 				(titleMatches ? 1000 : 0) +
 				tokens.reduce((total, token) => total + (title.includes(token) ? 90 : 30), 0) +
 				(item.projectId === project.id ? 40 : 0) +
-				(item.track === track ? 10 : 0);
+				(item.track === track ? 10 : 0) +
+				(item.generation === activeGeneration ? 25 : 0);
 			hits.push({
 				...item,
 				score,
@@ -745,7 +744,7 @@ export default function DocsShell({
 		}
 
 		return hits.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, 30);
-	}, [searchIndex, query, searchScope, project.id, track]);
+	}, [searchIndex, query, searchScope, project.id, track, activeGeneration]);
 
 	useEffect(() => {
 		setSelectedSearchIndex(0);
@@ -771,59 +770,43 @@ export default function DocsShell({
 	}, [searchOpen, searchResults, selectedSearchIndex]);
 
 
-	// Click vertical Battery bar -> generate /share/<8char> with level + track in Vercel Analytics.
-	const handleBatteryShare = () => {
-		const projectIdx = Math.max(
-			0,
-			manifest.projects.findIndex((p) => p.id === project.id),
-		);
-		const pageIdx = Math.max(
-			0,
-			trackPages.findIndex((p) => p.slug === page?.slug),
-		);
-		const lineMatch = lastAnchor.match(/^L(\d+)$/);
-		const headingIdx = page?.toc.findIndex((item) => item.id === lastAnchor) ?? -1;
-		const parsedLine = lineMatch ? Number(lineMatch[1]) : 0;
-		const lineIdx = parsedLine > 0
-			? Math.min(parsedLine, SHARE_HEADING_ANCHOR_BASE - 1)
-			: headingIdx >= 0
-				? SHARE_HEADING_ANCHOR_BASE + headingIdx
-				: 0;
-		const code = encodeShareCode({
-			projectIdx,
-			trackIdx: track === "guides" ? 1 : 0,
-			pageIdx,
-			lineIdx,
-			levelPct: scrollPct,
-		});
-		const url = `${SHARE_LINK_ORIGIN}/share/${code}`;
-		setShortShareUrl(url);
-		setShortCodeInput(code);
-		setShareOpen(true);
-		navigator.clipboard?.writeText(url).catch(() => {});
-		try {
-			trackEvent("doc_share_create", {
-				code,
-				project: project.id,
-				track,
-				slug: page?.slug ?? "overview",
-				levelPct: scrollPct,
-			});
-		} catch {}
-		notify(`Copied /share/${code} (Level ${scrollPct}%)`);
-	};
+	// Share the actual documentation URL, including any current EngineScroll hash.
+	const handleShareCurrentPage = async () => {
+		const shareUrl = window.location.href;
+		const recordShare = () => {
+			try {
+				trackEvent("doc_share_current", {
+					project: project.id,
+					track,
+					generation: activeGeneration ?? "unversioned",
+					slug: page?.slug ?? "overview",
+					levelPct: scrollPct,
+				});
+			} catch {
+				// Sharing must not depend on analytics availability.
+			}
+		};
 
-	const handleResolveShortCode = () => {
-		const cleaned = shortCodeInput.trim().replace(/^.*\/share\//i, "").slice(0, 8);
-		const decoded = decodeShareCode(cleaned);
-		if (!decoded) {
-			notify("Invalid 8-character share code");
-			return;
+		if (typeof navigator.share === "function") {
+			try {
+				await navigator.share({ title: page?.title ?? project.name, url: shareUrl });
+				recordShare();
+				notify("Shared current page");
+				return;
+			} catch (error) {
+				if (error instanceof DOMException && error.name === "AbortError") return;
+			}
 		}
-		setShareOpen(false);
-		router.push(`/share/${cleaned}`);
-	};
 
+		try {
+			if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+			await navigator.clipboard.writeText(shareUrl);
+			recordShare();
+			notify("Copied current page URL");
+		} catch {
+			notify("Could not share this page in the current browser");
+		}
+	};
 	const togglePin = (anchor: string, title: string) => {
 		const slug = page?.slug ?? "overview";
 		const key = `${project.id}:${track}:${slug}:${anchor}`;
@@ -1024,7 +1007,7 @@ export default function DocsShell({
 											>
 												<div className="kd-dropdown-item-head">
 													<span>/{project.id}/{item.slug}</span>
-													<span className="kd-badge-notest">{item.track.toUpperCase()}</span>
+													<span className="kd-badge-notest">{[item.generationLabel, item.track.toUpperCase()].filter(Boolean).join(" · ")}</span>
 												</div>
 												<small>{item.title}</small>
 											</Link>
@@ -1089,7 +1072,7 @@ export default function DocsShell({
 								)}
 								{query.trim() && searchResults.map((result, index) => (
 									<button
-										key={result.projectId + "/" + result.track + "/" + result.slug}
+										key={result.projectId + "/" + result.track + "/" + (result.generation ?? "") + "/" + result.slug}
 										type="button"
 										id={"kd-search-result-" + index}
 										role="option"
@@ -1100,7 +1083,7 @@ export default function DocsShell({
 									>
 										<span className="kd-search-result-top">
 											<strong>{result.title}</strong>
-											<small>{result.projectName} · {result.section} · {result.track.toUpperCase()}</small>
+											<small>{result.projectName} · {result.generationLabel ? result.generationLabel + " · " : ""}{result.section} · {result.track.toUpperCase()}</small>
 										</span>
 										<span className="kd-search-result-snippet">{result.snippet}</span>
 									</button>
@@ -1142,7 +1125,7 @@ export default function DocsShell({
 						onClick={() => setMobileNavOpen((open) => !open)}
 					>
 						<span className="kd-mobile-nav-copy">
-							<span className="kd-mobile-nav-label">{project.name} documentation</span>
+							<span className="kd-mobile-nav-label">{project.name}{activeGenerationRecord ? " · " + activeGenerationRecord.label : ""} documentation</span>
 							<strong className="kd-mobile-nav-current">{page?.title ?? project.name}</strong>
 						</span>
 						<span className="kd-mobile-nav-action">{mobileNavOpen ? "Close" : "Browse"}</span>
@@ -1151,12 +1134,40 @@ export default function DocsShell({
 					<div id="kd-sidebar-content" className={`kd-sidebar-content ${mobileNavOpen ? "is-open" : ""}`}>
 						<div className="kd-sidebar-project">
 							<strong>{project.name}</strong>
-							<span>{track === "docs" ? "Documentation" : "Guides"}</span>
+							<span>{activeGenerationRecord ? activeGenerationRecord.label + " / " : ""}{track === "docs" ? "Documentation" : "Guides"}</span>
 						</div>
+						{project.generations && project.generations.length > 1 && (
+							<div className="kd-generation-switch" role="group" aria-label="Documentation generation">
+								{project.generations.map((generation) => {
+									const targetPage = track === "docs"
+										? project.pages.find((p) => p.generation === generation.id && p.slug === generation.defaultSlug)
+											?? project.pages.find((p) => p.generation === generation.id && p.track === track)
+										: project.pages.find((p) => p.generation === generation.id && p.track === track)
+										?? project.pages.find((p) => p.generation === generation.id);
+									const href = targetPage
+									? `/${project.id}/${targetPage.slug}`
+									: `/${project.id}/${generation.defaultSlug}`;
+									return (
+										<Link
+											key={generation.id}
+											href={href}
+											className={`kd-generation-btn ${activeGeneration === generation.id ? "active" : ""}`}
+											aria-current={activeGeneration === generation.id ? "page" : undefined}
+											onClick={() => setMobileNavOpen(false)}
+										>
+											<strong>{generation.label}</strong>
+											<small>{generation.version}</small>
+										</Link>
+									);
+								})}
+							</div>
+						)}
 						<div className="kd-track-switch" role="group" aria-label="Documentation track">
 							{(["docs", "guides"] as DocTrack[]).map((t) => {
-								const targetPage = project.pages.find((p) => p.track === t);
-								const href = targetPage ? `/${project.id}/${targetPage.slug}` : `/${project.id}`;
+								const targetPage = project.pages.find((p) => p.track === t && (!activeGeneration || p.generation === activeGeneration));
+								const href = targetPage
+									? `/${project.id}/${targetPage.slug}`
+									: activeGenerationRecord ? `/${project.id}/${activeGenerationRecord.defaultSlug}` : `/${project.id}`;
 								return (
 									<Link
 									key={t}
@@ -1204,6 +1215,9 @@ export default function DocsShell({
 
 				<main className="kd-main">
 					<div className="kd-page-actions">
+						<button type="button" className="kd-btn-secondary" onClick={handleShareCurrentPage}>
+							Share
+						</button>
 						<button
 							type="button"
 							className="kd-btn-secondary"
@@ -1239,7 +1253,7 @@ export default function DocsShell({
 				<aside className="kd-toc" aria-label="On this page">
 					<div className="kd-toc-layout">
 						<div className="kd-toc-row">
-							<div className="kd-toc-panel">
+							<div className="kd-toc-panel" key={page?.slug ?? project.id}>
 								<section className="kd-toc-summary" aria-label="Page reading details">
 									<div className="kd-toc-panel-heading">
 										<h2 className="kd-toc-title">On this page</h2>
@@ -1267,16 +1281,27 @@ export default function DocsShell({
 											<span style={{ width: articleProgress + "%" }} />
 										</div>
 									</div>
+									<div className="kd-toc-progress kd-toc-progress-secondary">
+										<div className="kd-toc-progress-label">
+											<span>Page position</span>
+											<strong>{scrollPct}%</strong>
+										</div>
+										<div className="kd-toc-progress-track" role="progressbar" aria-label="Position through the full documentation page" aria-valuemin={0} aria-valuemax={100} aria-valuenow={scrollPct}>
+											<span style={{ width: scrollPct + "%" }} />
+										</div>
+										<p className="kd-toc-progress-note">Overall page position, including content below the outline.</p>
+									</div>
 								</section>
 
 								<nav className="kd-toc-outline" aria-label="Page sections">
 									<div className="kd-toc-outline-label">Contents</div>
 									{outlineItems.length > 0 ? (
 										<ol className="kd-toc-list">
-											{outlineItems.map((item) => (
+											{outlineItems.map((item, index) => (
 												<li
 													key={item.id}
 													className={"level-" + item.level + (item.id === activeTocId ? " active" : "")}
+														style={{ animationDelay: Math.min(index * 34, 340) + "ms" }}
 												>
 													<a
 														href={"#-es?move=" + encodeURIComponent(item.id) + "&offset=-84&duration=550"}
@@ -1295,26 +1320,6 @@ export default function DocsShell({
 								</nav>
 							</div>
 
-							{showBattery && (
-								<div className="kd-battery-wrap">
-									<span className="kd-battery-tooltip">Click to Share</span>
-									<button
-										type="button"
-										className="kd-battery-btn"
-										onClick={handleBatteryShare}
-										aria-label="Click to Share current scroll level"
-									>
-										<span className="kd-battery-cap" />
-										<span className="kd-battery-body">
-											<span
-												className="kd-battery-fill"
-												style={{ height: Math.max(8, scrollPct) + "%" }}
-											/>
-										</span>
-										<span className="kd-battery-pct">{scrollPct}%</span>
-									</button>
-								</div>
-							)}
 						</div>
 					</div>
 				</aside>
@@ -1382,27 +1387,6 @@ export default function DocsShell({
 					<button type="button" onClick={saveSelectionToNotebook}>
 						Notebook
 					</button>
-				</div>
-			)}
-
-			{shareOpen && (
-				<div className="kd-modal-backdrop" onClick={() => setShareOpen(false)}>
-					<div className="kd-modal" onClick={(e) => e.stopPropagation()}>
-						<h3>Share Point (/share/&lt;8char&gt;)</h3>
-						<input type="text" readOnly value={shortShareUrl} className="kd-search-input" />
-						<div className="kd-footer-actions">
-							<input
-								type="text"
-								value={shortCodeInput}
-								onChange={(e) => setShortCodeInput(e.target.value)}
-								placeholder="Paste 8-char code"
-								className="kd-search-input"
-							/>
-							<button type="button" className="kd-btn-primary" onClick={handleResolveShortCode}>
-								Resolve
-							</button>
-						</div>
-					</div>
 				</div>
 			)}
 

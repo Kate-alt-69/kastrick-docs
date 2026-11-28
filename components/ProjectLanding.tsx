@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
-import type { DocPageMeta, ProjectRecord } from "@/lib/content";
+import type { DocPageMeta, DocGeneration, ProjectRecord } from "@/lib/content";
 
 interface ProjectLandingProps {
 	project: ProjectRecord;
@@ -35,6 +35,80 @@ function PageRow({
 			</span>
 			<span className="kd-project-page-arrow" aria-hidden="true">↗</span>
 		</Link>
+	);
+}
+
+function GenerationLibrary({
+	projectId,
+	generation,
+	pages,
+}: {
+	projectId: string;
+	generation: DocGeneration;
+	pages: DocPageMeta[];
+}) {
+	const docsPages = pages.filter((page) => page.track === "docs");
+	const guidePages = pages.filter((page) => page.track === "guides");
+	const docsGroups = groupPages(docsPages);
+	const defaultPage = pages.find((page) => page.slug === generation.defaultSlug) ?? docsPages[0];
+	const firstDoc = defaultPage;
+	const firstGuide = guidePages[0];
+
+	return (
+		<section className="kd-generation-panel" id={`generation-${generation.id}`}>
+			<header className="kd-generation-panel-head">
+				<div>
+					<p className="kd-generation-kicker">SOURCE TRACK / {generation.branch}</p>
+					<h3>{generation.label}</h3>
+					<span>{generation.version}</span>
+				</div>
+				<div className="kd-generation-actions">
+					{firstDoc && (
+						<Link className="kd-project-button kd-project-button-primary" href={`/${projectId}/${firstDoc.slug}`}>
+							Open {generation.label} docs <span aria-hidden="true">→</span>
+						</Link>
+					)}
+					{firstGuide && (
+						<Link className="kd-project-button kd-project-button-secondary" href={`/${projectId}/${firstGuide.slug}`}>
+							Browse guides
+						</Link>
+					)}
+				</div>
+			</header>
+
+			<div className="kd-project-library-grid">
+				<section className="kd-project-lane" aria-label={generation.label + " reference documentation"}>
+					<div className="kd-project-lane-heading">
+						<div><span className="kd-project-lane-number">01</span><h3>Reference</h3></div>
+						<span>{docsPages.length} {docsPages.length === 1 ? "page" : "pages"}</span>
+					</div>
+					{docsPages.length > 0 ? docsGroups.map(([section, sectionPages]) => (
+						<div className="kd-project-page-group" key={section}>
+							<h4>{section}</h4>
+							<div className="kd-project-page-list">
+								{sectionPages.map((page, index) => (
+									<PageRow key={page.slug} projectId={projectId} page={page} index={index} />
+								))}
+							</div>
+						</div>
+					)) : <p className="kd-project-lane-empty">No reference pages were returned from {generation.branch}.</p>}
+				</section>
+
+				<section className="kd-project-lane" aria-label={generation.label + " practical guides"}>
+					<div className="kd-project-lane-heading">
+						<div><span className="kd-project-lane-number">02</span><h3>Guides</h3></div>
+						<span>{guidePages.length} {guidePages.length === 1 ? "page" : "pages"}</span>
+					</div>
+					{guidePages.length > 0 ? (
+						<div className="kd-project-page-list">
+							{guidePages.map((page, index) => (
+								<PageRow key={page.slug} projectId={projectId} page={page} index={index} />
+							))}
+						</div>
+					) : <p className="kd-project-lane-empty">No guides are published for this generation.</p>}
+				</section>
+			</div>
+		</section>
 	);
 }
 
@@ -94,7 +168,20 @@ export default function ProjectLanding({ project }: ProjectLandingProps) {
 						<p className="kd-project-description">{project.description}</p>
 
 						<div className="kd-project-actions">
-							{firstDoc ? (
+							{project.generations?.length ? project.generations.map((generation) => {
+								const target = project.pages.find((page) => page.generation === generation.id && page.slug === generation.defaultSlug)
+									?? project.pages.find((page) => page.generation === generation.id && page.track === "docs")
+									?? project.pages.find((page) => page.generation === generation.id);
+								return (
+									<Link
+									key={generation.id}
+									className="kd-project-button kd-project-button-secondary"
+									href={target ? `/${project.id}/${target.slug}` : `/${project.id}/${generation.defaultSlug}`}
+								>
+									{generation.label} <span aria-hidden="true">→</span>
+								</Link>
+								);
+							}) : firstDoc ? (
 								<Link className="kd-project-button kd-project-button-primary" href={`/${project.id}/${firstDoc.slug}`}>
 									Read documentation <span aria-hidden="true">→</span>
 								</Link>
@@ -107,7 +194,7 @@ export default function ProjectLanding({ project }: ProjectLandingProps) {
 									Open source repository <span aria-hidden="true">↗</span>
 								</a>
 							)}
-							{firstDoc && firstGuide && (
+							{!project.generations?.length && firstDoc && firstGuide && (
 								<Link className="kd-project-button kd-project-button-secondary" href={`/${project.id}/${firstGuide.slug}`}>
 									Browse guides
 								</Link>
@@ -192,8 +279,18 @@ export default function ProjectLanding({ project }: ProjectLandingProps) {
 								Visit {project.repo} ↗
 							</a>
 						</div>
-					) : (
-						<div className="kd-project-library-grid">
+					) : project.generations?.length ? (
+							<div className="kd-generation-library">
+								{project.generations.map((generation) => (
+									<GenerationLibrary
+									key={generation.id}
+									projectId={project.id}
+									generation={generation}
+									pages={project.pages.filter((page) => page.generation === generation.id)}
+								/>
+								))}
+							</div>
+						) : <div className="kd-project-library-grid">
 							<section className="kd-project-lane" id="project-docs" aria-labelledby="kd-project-docs-title">
 								<div className="kd-project-lane-heading">
 									<div>
@@ -237,7 +334,7 @@ export default function ProjectLanding({ project }: ProjectLandingProps) {
 								)}
 							</section>
 						</div>
-					)}
+					}
 				</section>
 
 				<footer className="kd-project-footer">

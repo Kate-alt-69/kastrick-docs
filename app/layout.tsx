@@ -2,8 +2,10 @@
 
 import type { Metadata, Viewport } from "next";
 import React from "react";
+import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { siteMetadata } from "@/data/site";
+import NavigationProgress from "@/components/NavigationProgress";
 import "./docs.css";
 
 export const metadata: Metadata = {
@@ -32,7 +34,11 @@ export default function RootLayout({
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<body suppressHydrationWarning>
+				<React.Suspense fallback={null}>
+					<NavigationProgress />
+				</React.Suspense>
 				{children}
+				<Analytics />
 				<SpeedInsights />
 			</body>
 		</html>

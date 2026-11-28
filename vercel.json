@@ -14,6 +14,94 @@
 	],
 	"rewrites": [
 		{
+			"source": "/nextjs-engine/docs/gen-1",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/docs/gen-1/:path*",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/doc/gen-1",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/doc/gen-1/:path*",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/gen1",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/gen1/:path*",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/gen-1",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/gen-1/:path*",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/1",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/1/:path*",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/docs/1",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/docs/1/:path*",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/docs/v1",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/docs/v1/:path*",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/docs/gen1",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/docs/gen1/:path*",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/doc/1",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/doc/1/:path*",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/doc/v1",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/doc/v1/:path*",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/doc/gen1",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
+			"source": "/nextjs-engine/doc/gen1/:path*",
+			"destination": "/nextjs-engine/v1"
+		},
+		{
 			"source": "/share/:code([A-Za-z0-9]{8})",
 			"destination": "/share?c=:code"
 		}

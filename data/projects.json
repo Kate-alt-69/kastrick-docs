@@ -143,9 +143,9 @@
 			"fallbackBranch": "main",
 			"established": true,
 			"status": "alpha",
-			"version": "Gen 3 (Alpha)",
-			"badge": "Rebase",
-			"rebaseNotice": "WARNING: Next.js Engine documentation is incomplete and currently undergoing a full Generation 3 rebase. Pages may be outdated or missing newer subsystems (such as EngineScroll). Verify behavior directly against the repository source.",
+			"version": "Gen 3 Alpha · Gen 2 stable archive",
+			"badge": "Gen 2 + Gen 3",
+			"rebaseNotice": null,
 			"description": "Schema-driven compiler and runtime for React 19 and Next.js 16 with server-first execution plans, client islands, and EngineScroll.",
 			"tracks": [
 				"docs",
@@ -212,6 +212,124 @@
 				"Error Handling",
 				"Error Reference",
 				"Migration"
+			],
+			"generations": [
+				{
+					"id": "3",
+					"label": "Generation 3",
+					"version": "3.x · Alpha",
+					"branch": "main-3",
+					"docsPaths": [
+						"docs/3",
+						"README.md"
+					],
+					"guidesPaths": [
+						"docs/3/guides"
+					],
+					"excludePaths": [],
+					"defaultSlug": "docs/3",
+					"sectionMap": {
+						"README.md": "Project Overview",
+						"docs/3": "Getting Started",
+						"docs/3/README.md": "Getting Started",
+						"docs/3/readme.md": "Getting Started",
+						"docs/3/index.md": "Getting Started",
+						"docs/3/api": "API Reference",
+						"docs/3/configuration": "Configuration",
+						"docs/3/engine-components": "Components",
+						"docs/3/error-codes": "Error Reference",
+						"docs/3/guides": "Guides",
+						"docs/3/integrations": "Integrations",
+						"docs/3/module": "Modules",
+						"docs/3/ne": "Engine Core",
+						"docs/3/ne/cli": "Command Line",
+						"docs/3/ne/compiler": "Compiler",
+						"docs/3/ne/debug": "Compatibility & Diagnostics",
+						"docs/3/ne/errors": "Error Handling",
+						"docs/3/ne/security": "Security & Networking",
+						"docs/3/compatibility-debugging-hardening.md": "Compatibility & Diagnostics",
+						"docs/3/compiler-deep-dive.md": "Compiler",
+						"docs/3/compiler-rendering-runtime.md": "Compiler",
+						"docs/3/global-error-handling.md": "Error Handling",
+						"docs/3/migration-from-2x.md": "Migration",
+						"docs/3/ne-cli.md": "Command Line",
+						"docs/3/networking-credentials-security.md": "Security & Networking",
+						"docs/3/styling.md": "Styling & Theming",
+						"docs/3/styling-detailed.md": "Styling & Theming"
+					},
+					"sectionOrder": [
+						"Project Overview",
+						"Getting Started",
+						"Guides",
+						"Engine Core",
+						"Compiler",
+						"Command Line",
+						"Configuration",
+						"API Reference",
+						"Components",
+						"Modules",
+						"Styling & Theming",
+						"Integrations",
+						"Security & Networking",
+						"Compatibility & Diagnostics",
+						"Error Handling",
+						"Error Reference",
+						"Migration"
+					]
+				},
+				{
+					"id": "2",
+					"label": "Generation 2",
+					"version": "2.x · Stable archive",
+					"branch": "main-2",
+					"docsPaths": [
+						"docs/2"
+					],
+					"guidesPaths": [
+						"docs/2/guides"
+					],
+					"excludePaths": [],
+					"defaultSlug": "docs/2",
+					"sectionMap": {
+						"docs/2": "Getting Started",
+						"docs/2/README.md": "Getting Started",
+						"docs/2/readme.md": "Getting Started",
+						"docs/2/index.md": "Getting Started",
+						"docs/2/api": "API Reference",
+						"docs/2/configuration": "Configuration",
+						"docs/2/engine-components": "Components",
+						"docs/2/guides": "Guides",
+						"docs/2/integrations": "Integrations",
+						"docs/2/module": "Modules",
+						"docs/2/ne": "Engine Core",
+						"docs/2/ne/cli": "Command Line",
+						"docs/2/ne/errors": "Error Handling",
+						"docs/2/migrating-to-3.md": "Migration",
+						"docs/2/migration-to-gen3.md": "Migration",
+						"docs/2/ne-cli.md": "Command Line",
+						"docs/2/ne-cli-error-book.md": "Error Handling",
+						"docs/2/runtime-performance.md": "Runtime",
+						"docs/2/schema-diagnostics.md": "Diagnostics",
+						"docs/2/styling.md": "Styling & Theming",
+						"docs/2/styling-detailed.md": "Styling & Theming"
+					},
+					"sectionOrder": [
+						"Getting Started",
+						"Guides",
+						"Engine Core",
+						"Command Line",
+						"Configuration",
+						"API Reference",
+						"Components",
+						"Modules",
+						"Styling & Theming",
+						"Integrations",
+						"Runtime",
+						"Diagnostics",
+						"Error Handling",
+						"Migration"
+					]
+				}
 			]
 		},
 		{
