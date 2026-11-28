@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { EngineManim } from "@/engine/components/EngineManim/EngineManim";
-import type { ManimConfig } from "@/engine/components/EngineManim/manimTypes";
+import { EngineManim, type ManimConfig } from "@/engine";
 
 const NETWORK_PATH =
 	"M 240 42 " +
