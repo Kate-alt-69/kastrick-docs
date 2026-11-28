@@ -2,7 +2,7 @@
 // Derives static /share/<8char> codes purely from page data (projectId, slug, and
 // anchor/parameter) using an embedded zero-dependency 64-bit FNV-1a hash so adding,
 // removing, or reordering other pages never invalidates existing share links.
-// Legacy bit-packed index codes are intentionally unsupported.
+// The original positional eight-character codec remains available below for archived links.
 
 const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const BASE = BigInt(ALPHABET.length);

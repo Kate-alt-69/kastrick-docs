@@ -77,6 +77,6 @@ The build emits:
 
 ## Vercel and static CDN caching
 
-This repository uses Next.js static export. A static page cannot query Edge Config at request time, so no unrelated Vercel project or runtime store is attached. Vercel serves each revisioned registry snapshot with a one-year immutable CDN cache. The pointer is shared-cache revalidated every 60 seconds and may be served stale for five minutes while revalidating. Each /share page fetches the revision named by its build-generated page prop, so all visitors on that deployment resolve against the same immutable registry version.
+This repository uses Next.js static export. A static page cannot query Edge Config at request time, so no unrelated Vercel project or runtime store is attached. Vercel serves each revisioned registry snapshot with a one-year immutable CDN cache. The pointer is shared-cache revalidated every 60 seconds and may be served stale for five minutes while revalidating. A resolver checks this pointer first, then fetches the selected revisioned snapshot with immutable caching. The revision embedded by the static build is used only if the pointer is temporarily unavailable.
 
 The existing eight-character redirects remain in place. Ten-character short-host redirects and rewrites are additive.

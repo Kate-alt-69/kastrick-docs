@@ -359,6 +359,11 @@ def write_share_registry(projects: list[dict[str, Any]], generated_at: str) -> s
 			identity_aliases = override.get("aliases", [])
 			if not isinstance(explicit_anchor_ids, dict) or not isinstance(anchor_aliases, dict):
 				raise ValueError(f"Anchor mappings for {identity!r} must be JSON objects.")
+			for explicit_anchor, explicit_id in explicit_anchor_ids.items():
+				if not isinstance(explicit_anchor, str) or not explicit_anchor:
+					raise ValueError(f"Explicit anchor keys for {identity!r} must be non-empty strings.")
+				if isinstance(explicit_id, bool) or not isinstance(explicit_id, int) or not 0 <= explicit_id <= 4095:
+					raise ValueError(f"Anchor ID for {identity!r} / {explicit_anchor!r} must be an integer from 0 to 4095.")
 			if not isinstance(identity_aliases, list) or not all(isinstance(item, str) and item for item in identity_aliases):
 				raise ValueError(f"Document aliases for {identity!r} must be non-empty identity strings.")
 

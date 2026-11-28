@@ -139,13 +139,38 @@ export default function ShareResolver({ projects, registryRevision }: ShareResol
 			if (code.length === 10) {
 				const decoded = decodeShareState(code);
 				if (decoded) {
-					const response = await fetch("/share/registry." + encodeURIComponent(registryRevision) + ".json", {
+					// Prefer the mutable CDN pointer so stale share-page HTML can still use
+					// the current registry. The immutable build revision is an offline fallback.
+					let selectedRevision = registryRevision;
+					try {
+						const pointerResponse = await fetch("/share/registry.json", { cache: "no-cache" });
+						if (pointerResponse.ok) {
+							const pointerPayload: unknown = await pointerResponse.json();
+							if (
+								pointerPayload &&
+								typeof pointerPayload === "object" &&
+								"schemaVersion" in pointerPayload &&
+								pointerPayload.schemaVersion === 1 &&
+								"revision" in pointerPayload &&
+								typeof pointerPayload.revision === "string" &&
+								/^[a-f0-9]{16}$/.test(pointerPayload.revision) &&
+								"url" in pointerPayload &&
+								pointerPayload.url === "/share/registry." + pointerPayload.revision + ".json"
+							) {
+								selectedRevision = pointerPayload.revision;
+							}
+						}
+					} catch {
+						// Fall back to the registry revision embedded by the static build.
+					}
+
+					const response = await fetch("/share/registry." + encodeURIComponent(selectedRevision) + ".json", {
 						cache: "force-cache",
 					});
 					if (!response.ok) throw new Error("The shared registry snapshot is unavailable.");
 					const registryPayload: unknown = await response.json();
-					if (!isShareRegistry(registryPayload, registryRevision)) {
-						throw new Error("The shared registry snapshot does not match this deployment.");
+					if (!isShareRegistry(registryPayload, selectedRevision)) {
+						throw new Error("The shared registry snapshot does not match the selected revision.");
 					}
 					const document = registryPayload.documentsById[decoded.where];
 					if (document) {

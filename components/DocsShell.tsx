@@ -3,7 +3,7 @@
 //   - Top Projects dropdown (RBE, Next.js Engine, PackageX, PackX, PackageX SDKs, Kastrick's Utility)
 //   - Docs / Guides dual tracks & Ctrl/Cmd+K instant search
 //   - Right-side reading context, section outline, and /share/<code> short-link sharing
-//   - EngineScroll #-es?move=<target>&offset=-84&duration=550 share URL resolution
+//   - Encoded EngineScroll targets with measured sticky-header alignment
 //   - In-app Pinning/Bookmarks + Android-style floating text-selection pill (Copy | Pin | Notebook)
 //   - Verbatim CC BY-ND 4.0 .md download & GitHub Issue edit links
 
@@ -846,12 +846,13 @@ export default function DocsShell({
 		}
 
 		const targetAnchor = normalizeShareAnchor(lastAnchor, page.toc ?? []);
-		const anchorId = page.share.anchors?.[targetAnchor];
+		const isSemanticHeading = (page.toc ?? []).some((item) => item.id === lastAnchor);
+		const anchorId = isSemanticHeading ? page.share.anchors?.[targetAnchor] : undefined;
 		const target = anchorId !== undefined
 			? { mode: "anchor" as const, anchorId, scrollPercent: scrollPct }
-			: targetAnchor === "bottom"
+			: lastAnchor === "bottom"
 				? { mode: "bottom" as const }
-				: targetAnchor === "top"
+				: lastAnchor === "top"
 					? { mode: "top" as const }
 					: { mode: "percent" as const, scrollPercent: scrollPct };
 		const code = encodeShareState(page.share.where, target, ENGINE_SCROLL_DEFAULTS);
