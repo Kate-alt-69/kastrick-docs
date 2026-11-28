@@ -2,7 +2,7 @@
 // Includes:
 //   - Top Projects dropdown (RBE, Next.js Engine, PackageX, PackX, PackageX SDKs, Kastrick's Utility)
 //   - Docs / Guides dual tracks & Ctrl/Cmd+K instant search
-//   - Right-side reading context, section outline, and independent page-position progress
+//   - Right-side reading context, section outline, and /share/<code> short-link sharing
 //   - EngineScroll #-es?move=<target>&offset=-84&duration=550 share URL resolution
 //   - In-app Pinning/Bookmarks + Android-style floating text-selection pill (Copy | Pin | Notebook)
 //   - Verbatim CC BY-ND 4.0 .md download & GitHub Issue edit links
@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { DocPageMeta, DocTrack, DocsManifest, ProjectRecord } from "@/lib/content";
+import { encodeShareCode, SHARE_HEADING_ANCHOR_BASE, SHARE_LINK_ORIGIN } from "@/lib/shareCode";
 
 interface DocsShellProps {
 	manifest: DocsManifest;
@@ -418,7 +419,7 @@ export default function DocsShell({
 		return () => document.removeEventListener("mousedown", onOutside);
 	}, []);
 
-	// Track the current article section and keep the share battery useful on long pages.
+	// Track the current article section and scroll depth for precise short-share links.
 	useEffect(() => {
 		const onScroll = () => {
 			const doc = document.documentElement;
@@ -770,12 +771,39 @@ export default function DocsShell({
 	}, [searchOpen, searchResults, selectedSearchIndex]);
 
 
-	// Share the actual documentation URL, including any current EngineScroll hash.
+	// Create a compact /share/<code> link for the current page, reading anchor, and scroll depth.
 	const handleShareCurrentPage = async () => {
-		const shareUrl = window.location.href;
+		const projectIdx = manifest.projects.findIndex((item) => item.id === project.id);
+		const pageIdx = trackPages.findIndex((item) => item.slug === page?.slug);
+		if (projectIdx < 0 || projectIdx > 15 || trackPages.length === 0 || pageIdx > 511) {
+			notify("This page cannot be shared with a short link");
+			return;
+		}
+
+		const generationIdx = activeGeneration
+			? Math.max(0, project.generations?.findIndex((item) => item.id === activeGeneration) ?? 0)
+			: 0;
+		const lineMatch = lastAnchor.match(/^L(\\d+)$/);
+		const headingIdx = page?.toc.findIndex((item) => item.id === lastAnchor) ?? -1;
+		const parsedLine = lineMatch ? Number(lineMatch[1]) : 0;
+		const lineIdx = parsedLine > 0
+			? Math.min(parsedLine, SHARE_HEADING_ANCHOR_BASE - 1)
+			: headingIdx >= 0
+				? SHARE_HEADING_ANCHOR_BASE + headingIdx
+				: 0;
+		const code = encodeShareCode({
+			projectIdx,
+			trackIdx: track === "guides" ? 1 : 0,
+			generationIdx,
+			pageIdx: Math.max(0, pageIdx),
+			lineIdx,
+			levelPct: scrollPct,
+		});
+		const shareUrl = `${SHARE_LINK_ORIGIN}/share/${code}`;
 		const recordShare = () => {
 			try {
-				trackEvent("doc_share_current", {
+				trackEvent("doc_share_create", {
+					code,
 					project: project.id,
 					track,
 					generation: activeGeneration ?? "unversioned",
@@ -791,7 +819,7 @@ export default function DocsShell({
 			try {
 				await navigator.share({ title: page?.title ?? project.name, url: shareUrl });
 				recordShare();
-				notify("Shared current page");
+				notify(`Shared /share/${code}`);
 				return;
 			} catch (error) {
 				if (error instanceof DOMException && error.name === "AbortError") return;
@@ -802,9 +830,9 @@ export default function DocsShell({
 			if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
 			await navigator.clipboard.writeText(shareUrl);
 			recordShare();
-			notify("Copied current page URL");
+			notify(`Copied /share/${code} (Level ${scrollPct}%)`);
 		} catch {
-			notify("Could not share this page in the current browser");
+			notify("Could not copy this share link in the current browser");
 		}
 	};
 	const togglePin = (anchor: string, title: string) => {
@@ -1215,9 +1243,6 @@ export default function DocsShell({
 
 				<main className="kd-main">
 					<div className="kd-page-actions">
-						<button type="button" className="kd-btn-secondary" onClick={handleShareCurrentPage}>
-							Share
-						</button>
 						<button
 							type="button"
 							className="kd-btn-secondary"
@@ -1281,16 +1306,14 @@ export default function DocsShell({
 											<span style={{ width: articleProgress + "%" }} />
 										</div>
 									</div>
-									<div className="kd-toc-progress kd-toc-progress-secondary">
-										<div className="kd-toc-progress-label">
-											<span>Page position</span>
-											<strong>{scrollPct}%</strong>
-										</div>
-										<div className="kd-toc-progress-track" role="progressbar" aria-label="Position through the full documentation page" aria-valuemin={0} aria-valuemax={100} aria-valuenow={scrollPct}>
-											<span style={{ width: scrollPct + "%" }} />
-										</div>
-										<p className="kd-toc-progress-note">Overall page position, including content below the outline.</p>
-									</div>
+									<button
+										type="button"
+										className="kd-btn-secondary kd-toc-share-button"
+										onClick={handleShareCurrentPage}
+										aria-label="Create and share a short link to this reading position"
+									>
+										Share
+									</button>
 								</section>
 
 								<nav className="kd-toc-outline" aria-label="Page sections">
